@@ -40,6 +40,7 @@ class QuestionInBatchResponse(BaseModel):
     user_answer: str | None
     is_correct: bool | None
     answered_at: str | None
+    question_set_codes: list[str] | None = None  # 题目所属的固定题集名称列表
 
 
 class BatchResultResponse(BaseModel):
