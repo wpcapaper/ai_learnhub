@@ -396,30 +396,43 @@ class DocxQuestionParser:
 def main():
     """主函数"""
     parser = argparse.ArgumentParser(
-        description='将DOCX文件转换为JSON格式的题目数据',
+        description='将 DOCX 文件转换为 JSON 格式的题目数据',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 示例:
-  # 转换单个文件（使用默认输出目录）
-  python convert_docx_to_json.py -i questions.docx
+  # 转换单个文件（使用默认输入和输出目录）
+  python convert_docx_to_json.py -f questions.docx
 
-  # 指定输出文件
-  python convert_docx_to_json.py -i questions.docx -o questions.json
+  # 指定输入目录
+  python convert_docx_to_json.py -f questions.docx -i custom/input
 
-  # 转换并指定占位符解析
-  python convert_docx_to_json.py -i questions.docx -p "暂无解析"
+  # 指定输出目录
+  python convert_docx_to_json.py -f questions.docx -o custom/output
+
+  # 转换并指定占位符
+  python convert_docx_to_json.py -f questions.docx -p "暂无解析"
         '''
     )
 
     parser.add_argument(
-        '-i', '--input',
-        required=True,
-        help='输入DOCX文件路径'
+        '-f', '--file',
+        type=str,
+        default='questions.docx',
+        help='输入文件名（默认: questions.docx）。文件应位于 scripts/data/input/ 目录'
     )
 
     parser.add_argument(
-        '-o', '--output',
-        help='输出JSON文件路径（默认：src/data/converted/{docx_filename}.json）'
+        '-i', '--input-dir',
+        type=str,
+        default=None,
+        help='输入目录路径（默认: scripts/data/input/）'
+    )
+
+    parser.add_argument(
+        '-o', '--output-dir',
+        type=str,
+        default=None,
+        help='输出目录路径（默认: scripts/data/output/）'
     )
 
     parser.add_argument(
@@ -437,22 +450,29 @@ def main():
 
     args = parser.parse_args()
 
-    # 检查输入文件
-    if not Path(args.input).exists():
-        print(f"❌ 错误：输入文件不存在: {args.input}")
+    # 设置路径
+    script_dir = Path(__file__).parent
+    input_dir = Path(args.input_dir) if args.input_dir else script_dir / "data" / "input"
+    output_dir = Path(args.output_dir) if args.output_dir else script_dir / "data" / "output"
+
+    print(f"脚本目录: {script_dir}")
+    print(f"输入目录: {input_dir}")
+    print(f"输出目录: {output_dir}\n")
+
+    # 构建输入文件路径
+    docx_path = input_dir / args.file
+
+    if not docx_path.exists():
+        print(f"❌ 文件不存在: {docx_path}")
+        print(f"\n提示：请确保文件位于 {input_dir} 目录下")
         sys.exit(1)
 
-    if not args.output:
-        script_dir = Path(__file__).parent
-        output_dir = script_dir / "data" / "output"
-        input_file = Path(args.input)
-        default_output = output_dir / f"{input_file.stem}.json"
-        args.output = str(default_output)
-        print(f"📁 使用默认输出目录: {args.output}")
+    # 设置输出路径
+    output_path = output_dir / f"{docx_path.stem}.json"
 
     # 创建解析器并解析
-    print(f"📖 正在解析: {args.input}")
-    parser = DocxQuestionParser(args.input)
+    print(f"📖 正在解析: {docx_path}")
+    parser = DocxQuestionParser(docx_path)
     questions = parser.parse()
 
     if not questions:
@@ -477,18 +497,17 @@ def main():
     print(f"  判断题: {type_counts.get('true_false', 0)}")
 
     # 确保输出目录存在
-    output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # 写入JSON文件
-    with open(args.output, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding='utf-8') as f:
         json.dump(questions, f, ensure_ascii=False, indent=2)
 
-    print(f"\n📄 已保存到: {args.output}")
+    print(f"\n📄 已保存到: {output_path}")
 
     # 验证文件
     try:
-        with open(args.output, 'r', encoding='utf-8') as f:
+        with open(output_path, 'r', encoding='utf-8') as f:
             json.load(f)
         print("✅ JSON文件验证通过")
     except json.JSONDecodeError as e:

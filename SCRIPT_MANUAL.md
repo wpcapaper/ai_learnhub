@@ -324,26 +324,42 @@ uv run python import_questions.py \
 
 ```bash
 cd scripts
-uv run python convert_docx_to_json.py -i /path/to/questions.docx
+
+# 使用默认文件名（questions.docx）
+uv run python convert_docx_to_json.py
+
+# 指定文件名
+uv run python convert_docx_to_json.py -f my_questions.docx
+
+# 指定完整路径
+uv run python convert_docx_to_json.py -f my_questions.docx -i /path/to/input -o /path/to/output
+
+# 设置占位符和难度
+uv run python convert_docx_to_json.py -f my_questions.docx -p "解析待补充" -d 3
 ```
 
 **参数说明：**
-- `-i` / `--input`: 输入 DOCX 文件路径（必填）
-- `-o` / `--output`: 输出 JSON 文件路径（可选，默认：`../data/converted/{docx_filename}.json`）
-- `-p` / `--placeholder-explanation`: 解析字段的占位符文本（默认：`暂无解析`）
-- `-d` / `--default-difficulty`: 默认难度等级 1-5（默认：2）
+- `-f` / `--file`: 输入文件名（默认: `questions.docx`）。文件应位于 `scripts/data/input/` 目录
+- `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
+- `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
+- `-p` / `--placeholder-explanation`: 解析字段的占位符文本（默认: `暂无解析`）
+- `-d` / `--default-difficulty`: 默认难度等级 1-5（默认: 2）
 
-**示例：**
+**输出示例：**
+```
+脚本目录: /path/to/scripts
+输入目录: /path/to/scripts/data/input
+输出目录: /path/to/scripts/data/output
 
-```bash
-# 使用默认输出路径（输出到 data/output/）
-uv run python convert_docx_to_json.py -i data/input/exam_questions.docx
+📖 正在解析: my_questions.docx
+✅ 解析完成!
+  总题目数: 150
+  单选题: 100
+  多选题: 30
+  判断题: 20
 
-# 指定输出路径
-uv run python convert_docx_to_json.py -i data/input/exam_questions.docx -o data/output/exam_set1.json
-
-# 设置占位符和难度
-uv run python convert_docx_to_json.py -i data/input/exam_questions.docx -p "解析待补充" -d 3
+📄 已保存到: /path/to/scripts/data/output/my_questions.json
+✅ JSON文件验证通过
 ```
 
 **输出示例：**
@@ -392,13 +408,13 @@ uv run python import_questions.py \
 ```
 
 **参数说明：**
-- `--json-file` / `-f`: JSON 文件路径（可选，默认从 `data/output/` 目录读取）
-- `--question-set-code`: 固定题集代码（必填）
-- `--question-set-name`: 固定题集名称（必填）
+- `--json-file` / `-f`: JSON 文件路径（必填）
+- `--question-set-code` / `-s`: 固定题集代码（必填）
+- `--question-set-name` / `-n`: 固定题集名称（必填）
 
 **输出示例：**
 ```
-从 ../data/converted/exam_questions.json 导入题目...
+从 data/output/exam_questions.json 导入题目...
 ✅ Imported 150 questions to course: AI认证考试 (ai_cert_exam)
    Question set: exam_set1
 ✅ Created question set: 2025年模拟考试题集 with 150 questions
@@ -573,17 +589,34 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 
 ### convert_docx_to_json.py
 
-**作用：** 将 Word 文档转换为 JSON 格式。
+**作用：** 将 Word 文档转换为 JSON 格式的题目数据。
 
 **使用：**
 ```bash
-uv run python convert_docx_to_json.py -i data/input/exam.docx -o data/output/exam.json
+# 使用默认文件名（questions.docx）
+uv run python convert_docx_to_json.py
+
+# 指定文件名
+uv run python convert_docx_to_json.py -f my_questions.docx
+
+# 指定完整路径
+uv run python convert_docx_to_json.py -f my_questions.docx -i /path/to/input -o /path/to/output
+
+# 设置占位符和难度
+uv run python convert_docx_to_json.py -f my_questions.docx -p "解析待补充" -d 3
 ```
 
+**参数说明：**
+- `-f` / `--file`: 输入文件名（默认: `questions.docx`）。文件应位于 `scripts/data/input/` 目录
+- `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
+- `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
+- `-p` / `--placeholder-explanation`: 解析字段的占位符文本（默认: `暂无解析`）
+- `-d` / `--default-difficulty`: 默认难度等级 1-5（默认: 2）
+
 **说明：**
-- 支持红色标记正确答案
+- 支持红色标记正确答案（多选题支持多个正确答案）
 - 自动识别题型（单选/多选/判断）
-- 默认输出到 `data/output/` 目录
+- 输出 JSON 格式文件到 `{output_dir}/{filename}.json`
 
 ---
 
@@ -622,12 +655,15 @@ uv run python init_db.py
 # 2. 创建课程
 uv run python init_course_data.py
 
-# 3. 转换数据
-uv run python convert_docx_to_json.py -i data/input/exam.docx
+# 3. 转换数据（使用默认文件名 questions.docx）
+uv run python convert_docx_to_json.py
+
+# 或指定文件名
+uv run python convert_docx_to_json.py -f my_questions.docx
 
 # 4. 导入题目（注意：请使用预设的课程代码：llm_basic、ai_cert_exam、ml_cert_exam）
 uv run python import_questions.py \
-  data/output/exam.docx.json \
+  questions.json \
   --course-code ml_cert_exam \
   --question-set-code exam_set1 \
   --question-set-name "考试题集"
