@@ -206,26 +206,26 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
      - 多选: 20题
      - 判断: 40题
 
-✅ JSON文件已保存: /path/to/scripts/data/output/sampleQuiz.json
+✅ JSON文件已保存: /path/to/scripts/data/output/sample_quiz.json
    总题数: 99
-✅ CSV文件已保存: /path/to/scripts/data/output/sampleQuiz.csv
+✅ CSV文件已保存: /path/to/scripts/data/output/sample_quiz.csv
 
 ✅ 转换完成!
 
-转换报告已保存: /path/to/scripts/data/output/sampleQuiz_conversion_report.md
+转换报告已保存: /path/to/scripts/data/output/sample_quiz_conversion_report.md
 
 下一步:
-  1. 检查转换结果: /path/to/scripts/data/output/sampleQuiz.json
+  1. 检查转换结果: /path/to/scripts/data/output/sample_quiz.json
   2. 如需导入数据库，运行:
      cd /path/to/scripts
-     uv run python import_questions.py data/output/sampleQuiz.json
+     uv run python import_questions.py data/output/sample_quiz.json
 ```
 
 #### 步骤 2：导入 JSON 到数据库
 
 ```bash
 uv run python import_questions.py \
-  data/output/sampleQuiz.json \
+  data/output/sample_quiz.json \
   --course-code ai_cert_exam
 ```
 
@@ -238,7 +238,7 @@ uv run python import_questions.py \
 
 **输出示例：**
 ```
-从 ../data/converted/sampleQuiz.json 导入题目...
+从 ../data/converted/sample_quiz.json 导入题目...
 ✅ Imported 99 questions to course: AI认证考试 (ai_cert_exam)
 
 导入完成！
@@ -575,7 +575,7 @@ uv run python convert_md_to_json.py -f my_questions.md
 
 # 4. 导入题目
 uv run python import_questions.py \
-  data/output/sampleQuiz.json \
+  data/output/sample_quiz.json \
   --course-code ai_cert_exam
 ```
 
