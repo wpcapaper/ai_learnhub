@@ -81,7 +81,8 @@ def import_questions_from_json(
         existing = db.query(Question).filter(
             Question.course_id == course.id,
             Question.content == q_data['content'],
-            Question.correct_answer == q_data['correct_answer']
+            Question.correct_answer == q_data['correct_answer'],
+            Question.explanation == q_data['explanation']
         ).first()
 
         if existing:

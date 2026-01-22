@@ -141,6 +141,8 @@ class QuizService:
         """
         完成批次（统一对答案）
 
+        支持幂等性：如果批次已经是 completed 状态，直接返回已有结果
+
         Args:
             db: 数据库会话
             user_id: 用户ID
@@ -149,15 +151,37 @@ class QuizService:
         Returns:
             dict: 批次结果统计
         """
-        # 验证批次
+        # 先查询批次（不限制状态）
         batch = db.query(QuizBatch).filter(
             QuizBatch.id == batch_id,
-            QuizBatch.user_id == user_id,
-            QuizBatch.status == "in_progress"
+            QuizBatch.user_id == user_id
         ).first()
 
         if not batch:
-            raise ValueError("批次不存在或已完成")
+            raise ValueError("批次不存在")
+
+        # 如果批次已完成，直接返回已有结果（幂等性）
+        if batch.status == "completed":
+            # 获取所有答题记录
+            answers = db.query(BatchAnswer).filter(
+                BatchAnswer.batch_id == batch_id
+            ).all()
+
+            total = len(answers)
+            correct = sum(1 for a in answers if a.is_correct)
+            wrong = total - correct
+
+            return {
+                "batch_id": batch_id,
+                "total": total,
+                "correct": correct,
+                "wrong": wrong,
+                "accuracy": round(correct / total * 100, 2) if total > 0 else 0
+            }
+
+        # 批次未完成，执行完成逻辑
+        if batch.status != "in_progress":
+            raise ValueError("批次状态异常")
 
         # 获取所有答题记录
         answers = db.query(BatchAnswer).filter(
@@ -186,12 +210,6 @@ class QuizService:
                 else:
                     wrong += 1
 
-        # 更新批次状态
-        batch.status = "completed"
-        batch.completed_at = datetime.utcnow()
-
-        db.commit()
-
         # 保存到学习记录（传递 batch_id 以关联历史记录）
         for answer in answers:
             if answer.user_answer:
@@ -203,6 +221,12 @@ class QuizService:
                     is_correct=answer.is_correct,
                     batch_id=batch_id  # 关联批次
                 )
+
+        # 更新批次状态（放在最后，确保原子性）
+        batch.status = "completed"
+        batch.completed_at = datetime.utcnow()
+
+        db.commit()
 
         return {
             "batch_id": batch_id,

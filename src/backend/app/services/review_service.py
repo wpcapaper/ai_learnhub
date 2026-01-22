@@ -86,14 +86,11 @@ class ReviewService:
             record.next_review_time = next_time
             record.completed_in_current_round = True  # 标记在当前轮次已刷过
         else:
-            # 新记录（只存储复习状态，is_correct/answer/answered_at 使用默认值）
+            # 新记录（只存储复习状态）
             record = UserLearningRecord(
                 id=str(uuid.uuid4()),
                 user_id=user_id,
                 question_id=question_id,
-                is_correct=True,  # 默认值，不再使用
-                answer="",  # 默认值，不再使用
-                answered_at=datetime.utcnow(),  # 默认值，不再使用
                 review_stage=next_stage,
                 next_review_time=next_time,
                 completed_in_current_round=True
