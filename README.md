@@ -262,11 +262,11 @@ uv run python import_questions.py data/output/sampleQuiz.json --course-code ai_c
 ```bash
 # 转换 Markdown 为 JSON
 cd scripts
-uv run python convert_md_to_json.py -f sampleQuiz.md
+uv run python convert_md_to_json.py -f sample_quiz.md
 
 # 导入到数据库
 uv run python import_questions.py \
-  data/output/sampleQuiz.json \
+  data/output/sample_quiz.json \
   --course-code ai_cert_exam
 ```
 

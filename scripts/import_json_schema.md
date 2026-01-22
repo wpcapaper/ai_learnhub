@@ -339,7 +339,7 @@
   "metadata": {
     "source": "convert_md_to_json",  // 或 "convert_docx_to_json"
     "converted_at": "2024-01-15T10:30:00Z",  // 转换时间
-    "original_file": "sampleQuiz.md",  // 原始文件名
+    "original_file": "sample_quiz.md",  // 原始文件名
     "line_number": 15  // 原始文件中的行号
   }
 }
@@ -1039,7 +1039,7 @@ function QuestionRenderer({ question }: { question: Question }) {
 
 ```bash
 cd scripts
-uv run python convert_md_to_json.py -f sampleQuiz.md
+uv run python convert_md_to_json.py -f sample_quiz.md
 ```
 
 **Word 转 JSON**：
@@ -1136,7 +1136,7 @@ uv run python import_questions.py \
 
 ```bash
 cd scripts
-uv run python convert_md_to_json.py -f sampleQuiz.md
+uv run python convert_md_to_json.py -f sample_quiz.md
 ```
 
 **支持的 Markdown 格式**：

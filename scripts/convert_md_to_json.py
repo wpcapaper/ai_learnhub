@@ -1,6 +1,6 @@
 """
 题库转换脚本 - 将 Markdown 格式的题库转换为 JSON/CSV 格式
-支持任意 Markdown 文件（默认: sampleQuiz.md）
+支持任意 Markdown 文件（默认: sample_quiz.md）
 """
 import re
 import json
@@ -28,7 +28,7 @@ def parse_quiz_text_to_json(quiz_text: str, vault_no: str) -> List[Dict[str, Any
     """
     将试题文本转换为JSON格式
 
-    针对 sampleQuiz.md 的特殊格式：
+    针对 sample_quiz.md 的特殊格式：
     - 题目格式: "数字、 [类型]" (没有下划线)
     - 选项格式: " A：" (前面没有连字符)
     - 正确答案: "正确答案：X 你的答案：X" (需要忽略"你的答案")
@@ -38,7 +38,7 @@ def parse_quiz_text_to_json(quiz_text: str, vault_no: str) -> List[Dict[str, Any
     quiz_text = quiz_text.replace('\u00A0', ' ')
 
     # 按题型分组：先按题型标题分割
-    # sampleQuiz.md 的格式： "单选题 （每题1分，共39道题）"
+    # sample_quiz.md 的格式： "单选题 （每题1分，共39道题）"
     type_sections = re.split(r'(单选题|多选题|判断题)\s*[（\(].*?[）\)]', quiz_text)
     sections = []
     for i in range(1, len(type_sections), 2):
@@ -66,7 +66,7 @@ def parse_quiz_text_to_json(quiz_text: str, vault_no: str) -> List[Dict[str, Any
 
         for block in blocks:
             # 匹配：题号、[类型]、题干
-            # sampleQuiz.md 格式: "1、 [单选] 题干内容"
+            # sample_quiz.md 格式: "1、 [单选] 题干内容"
             pattern = r'^(\d+)、\s*\[(单选|多选|判断)\]\s*(.*)'
             match = re.match(pattern, block, re.DOTALL)
             if not match:
@@ -77,7 +77,7 @@ def parse_quiz_text_to_json(quiz_text: str, vault_no: str) -> List[Dict[str, Any
             rest = match.group(3).strip()
 
             # 提取"正确答案"或"正确选项"
-            # sampleQuiz.md 格式: "正确答案：B 你的答案：B" 或 "正确选项：错 你的选项：错"
+            # sample_quiz.md 格式: "正确答案：B 你的答案：B" 或 "正确选项：错 你的选项：错"
             # 需要忽略"你的答案/你的选项"部分
             ans_match = re.search(r'(?:正确答案|正确选项)：\s*([^你的]+?)(?=你的[答案选项]|解析：|\s*$)', rest, re.DOTALL)
             suggest_answer = ans_match.group(1).strip() if ans_match else ''
@@ -95,7 +95,7 @@ def parse_quiz_text_to_json(quiz_text: str, vault_no: str) -> List[Dict[str, Any
             # 提取选项（单选题、多选题和判断题）
             options = {}
             if quiz_type in ['单选', '多选']:
-                # sampleQuiz.md 格式: " A：" (前面可能有空格，但没有连字符)
+                # sample_quiz.md 格式: " A：" (前面可能有空格，但没有连字符)
                 option_pattern = r'\s*[A-D][:：]\s*(.*?)(?=\n|$)'
                 for option_match in re.finditer(option_pattern, quiz_body, re.DOTALL):
                     option_line = option_match.group(0)
@@ -245,7 +245,7 @@ def save_to_csv(data: List[Dict], output_path: Path):
 
 def process_sample_quiz_file(vault_path: Path, output_dir: Path):
     """
-    处理sampleQuiz.md文件
+    处理sample_quiz.md文件
 
     Args:
         vault_path: vault文件路径
@@ -301,8 +301,8 @@ def main():
     parser.add_argument(
         '-f', '--file',
         type=str,
-        default='sampleQuiz.md',
-        help='输入文件名（默认: sampleQuiz.md）。文件应位于 scripts/data/input/ 目录'
+        default='sample_quiz.md',
+        help='输入文件名（默认: sample_quiz.md）。文件应位于 scripts/data/input/ 目录'
     )
     parser.add_argument(
         '-i', '--input-dir',

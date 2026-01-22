@@ -2,11 +2,11 @@
 
 ## 简介
 
-此脚本用于将 Markdown 格式的题库文件（如 `sampleQuiz.md`）转换为标准的 JSON/CSV 格式，以便导入数据库。
+此脚本用于将 Markdown 格式的题库文件（如 `sample_quiz.md`）转换为标准的 JSON/CSV 格式，以便导入数据库。
 
 ## 脚本特性
 
-- 支持指定任意 Markdown 文件（默认: `sampleQuiz.md`）
+- 支持指定任意 Markdown 文件（默认: `sample_quiz.md`）
 - 自动识别题型：单选题、多选题、判断题
 - 支持多种格式变体（详见"支持的格式"）
 - 输出 JSON 和 CSV 两种格式
@@ -96,7 +96,7 @@ B: 选项内容
 ```bash
 cd scripts
 
-# 使用默认文件名（sampleQuiz.md）
+# 使用默认文件名（sample_quiz.md）
 uv run python convert_md_to_json.py
 
 # 指定文件名
@@ -108,7 +108,7 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 
 ### 参数说明
 
-- `-f` / `--file`: 输入文件名（默认: `sampleQuiz.md`）
+- `-f` / `--file`: 输入文件名（默认: `sample_quiz.md`）
 - `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
 - `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
 
@@ -131,7 +131,7 @@ uv run python import_questions.py data/output/sampleQuiz.json --course-code ai_c
 
 ## 转换结果示例
 
-假设有以下 Markdown 文件（`sampleQuiz.md`）：
+假设有以下 Markdown 文件（`sample_quiz.md`）：
 
 ```markdown
 单选题 （每题1分，共39道题）
@@ -169,7 +169,7 @@ uv run python import_questions.py data/output/sampleQuiz.json --course-code ai_c
 ### 输出统计
 
 ```
-处理文件: sampleQuiz.md
+处理文件: sample_quiz.md
    解析到 3 道题目
    题型分布:
      - 单选: 1题

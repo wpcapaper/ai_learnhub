@@ -158,4 +158,5 @@ htmlcov/
 scripts/data/input/*
 scripts/data/output/*
 !scripts/data/input/sampleQuiz.md
+!scripts/data/input/sample_quiz.md
 !scripts/data/input/sample_docx.docx

@@ -42,10 +42,10 @@ your-project/
 ├── scripts/              # 脚本目录
 │   ├── data/             # 数据目录
 │   │   ├── input/        # 输入数据（源文件）
-│   │   │   ├── sampleQuiz.md
+│   │   │   ├── sample_quiz.md
 │   │   │   └── exam_questions.docx
 │   │   └── output/       # 输出数据（转换后的 JSON）
-│   │       ├── sampleQuiz.json
+│   │       ├── sample_quiz.json
 │   │       └── exam_questions.json
 │   ├── init_db.py
 │   ├── init_course_data.py
@@ -67,7 +67,7 @@ your-project/
 **准备输入数据：**
 
 将你的数据源文件放入 `scripts/data/input/` 目录：
-- Markdown 文件（如 `sampleQuiz.md`）
+- Markdown 文件（如 `sample_quiz.md`）
 - Word 文档（如 `exam_questions.docx`）
 
 ---
@@ -149,7 +149,7 @@ def init_course_data(db: Session):
 将题目导入为普通题集，用于日常刷题和艾宾浩斯学习。
 
 **数据源格式：**
-- Markdown 文件（如 `sampleQuiz.md`）
+- Markdown 文件（如 `sample_quiz.md`）
 - JSON 文件（标准格式）
 
 ### 流程 1：从 Markdown 转换并导入
@@ -168,13 +168,13 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 ```
 
 **参数说明：**
-- `-f` / `--file`: 输入文件名（默认: `sampleQuiz.md`）
+- `-f` / `--file`: 输入文件名（默认: `sample_quiz.md`）
 - `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
 - `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
 
 **使用示例：**
 ```bash
-# 使用默认文件名（sampleQuiz.md）
+# 使用默认文件名（sample_quiz.md）
 uv run python convert_md_to_json.py
 
 # 指定文件名
@@ -185,7 +185,7 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 ```
 
 **要求：**
-- 确保 `scripts/data/input/sampleQuiz.md` 文件存在
+- 确保 `scripts/data/input/sample_quiz.md` 文件存在
 - 文件格式参考：`scripts/convert_md_to_json_README.md`
 
 **输出文件：**
@@ -199,7 +199,7 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 输入目录: /path/to/scripts/data/input
 输出目录: /path/to/scripts/data/output
 
-处理文件: sampleQuiz.md
+处理文件: sample_quiz.md
    解析到 99 道题目
    题型分布:
      - 单选: 39题
@@ -516,7 +516,7 @@ uv run python import_questions.py -f file1.json,file2.json -c ai_cert_exam
 
 **使用：**
 ```bash
-# 使用默认文件名（sampleQuiz.md）
+# 使用默认文件名（sample_quiz.md）
 uv run python convert_md_to_json.py
 
 # 指定文件名
@@ -527,7 +527,7 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 ```
 
 **参数：**
-- `-f` / `--file`: 输入文件名（默认: `sampleQuiz.md`）
+- `-f` / `--file`: 输入文件名（默认: `sample_quiz.md`）
 - `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
 - `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
 
@@ -567,7 +567,7 @@ uv run python init_db.py
 # 2. 创建课程
 uv run python init_course_data.py
 
- # 3. 转换数据（使用默认文件名 sampleQuiz.md）
+ # 3. 转换数据（使用默认文件名 sample_quiz.md）
 uv run python convert_md_to_json.py
 
 # 3.1 或指定文件名

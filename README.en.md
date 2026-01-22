@@ -258,11 +258,11 @@ The system supports multiple question bank formats. For detailed instructions, s
 ```bash
 # Convert Markdown to JSON
 cd scripts
-uv run python convert_md_to_json.py -f sampleQuiz.md
+uv run python convert_md_to_json.py -f sample_quiz.md
 
 # Import to database
 uv run python import_questions.py \
-  data/output/sampleQuiz.json \
+  data/output/sample_quiz.json \
   --course-code ai_cert_exam
 ```
 
