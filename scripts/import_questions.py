@@ -176,7 +176,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='导入题目到指定课程')
-    parser.add_argument('--json-file', '-f', help='JSON文件路径（支持多文件），默认从 data/output/ 目录读取')
+    parser.add_argument('--json-file', '-f', required=True, help='JSON文件路径（支持多文件），默认从 data/output/ 目录读取')
     parser.add_argument('--course-code', '-c', required=True, help='课程代码（如：ai_cert_exam）')
     parser.add_argument('--question-set-code', '-s', help='题集代码（可选，用于创建固定题集）')
     parser.add_argument('--question-set-name', '-n', help='题集名称（可选，用于创建固定题集）')
@@ -196,24 +196,15 @@ def main():
         # 处理文件路径：默认从 data/output/ 目录读取
         default_output_dir = Path(__file__).parent / "data" / "output"
 
-        if not args.json_file:
-            # 如果未指定文件，自动查找 data/output/ 目录下的 .json 文件
-            json_files = list(default_output_dir.glob("*.json"))
-            if not json_files:
-                print(f"错误：未找到 JSON 文件，请在 {default_output_dir} 目录下放置 .json 文件，或使用 --json-file 参数指定")
-                sys.exit(1)
-            json_files = [str(f) for f in json_files]
-            print(f"未指定文件，自动找到以下文件：\n  " + "\n  ".join([str(f) for f in json_files]))
-        else:
-            # 支持多文件导入
-            json_files = args.json_file.split(',')
-            json_files = [f.strip() for f in json_files]
+        # 支持多文件导入
+        json_files = args.json_file.split(',')
+        json_files = [f.strip() for f in json_files]
 
-            # 如果文件不是绝对路径且不以 data/output/ 开头，自动拼接
-            for i, file_path in enumerate(json_files):
-                path = Path(file_path)
-                if not path.is_absolute() and not str(path).startswith("data/output/"):
-                    json_files[i] = str(default_output_dir / path)
+        # 如果文件不是绝对路径且不以 data/output/ 开头，自动拼接
+        for i, file_path in enumerate(json_files):
+            path = Path(file_path)
+            if not path.is_absolute() and not str(path).startswith("data/output/"):
+                json_files[i] = str(default_output_dir / path)
 
         total_imported = 0
         total_skipped = 0
@@ -234,14 +225,21 @@ def main():
 
         # 打印结果
         print("\n导入完成！")
-        print(f"  总题目数: {result['total']}")
+        total_result = {
+            "total": result['total'] if 'result' in locals() else 0,
+            "imported": total_imported,
+            "skipped": total_skipped,
+            "errors": result['errors'] if 'result' in locals() else 0,
+            "error_details": result['error_details'] if 'result' in locals() else []
+        }
+        print(f"  总题目数: {total_result['total']}")
         print(f"  成功导入: {total_imported}")
         print(f"  跳过: {total_skipped}")
-        print(f"  错误: {result['errors']}")
+        print(f"  错误: {total_result['errors']}")
 
-        if result['error_details']:
+        if total_result['error_details']:
             print("\n错误详情（前10个）:")
-            for error in result['error_details']:
+            for error in total_result['error_details']:
                 print(f"  - {error}")
 
     except Exception as e:
