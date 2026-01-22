@@ -227,10 +227,10 @@ function QuizContent() {
                         {q.question_type === 'single_choice' ? '单选题' :
                          q.question_type === 'multiple_choice' ? '多选题' : '判断题'}
                       </span>
-                      {/* 显示题集来源（仅在批次完成后显示） */}
-                      {completed && q.question_set_codes && q.question_set_codes.length > 0 && (
+                      {/* 显示题集来源（与错题本保持一致） */}
+                      {q.question_set_codes && q.question_set_codes.length > 0 && (
                         <span className="px-2 py-1 text-xs font-medium rounded bg-purple-100 text-purple-700">
-                          📚 固定题库: {q.question_set_codes.join(', ')}
+                          📚 {q.question_set_codes.join(', ')}
                         </span>
                       )}
                     </div>

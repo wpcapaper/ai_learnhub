@@ -195,7 +195,7 @@ uv run python init_db.py
 uv run python init_course_data.py
 
 # 步骤 3: 导入题目数据（必需，否则无法开始学习）
-uv run python import_questions.py data/output/sampleQuiz.json --course-code ai_cert_exam
+uv run python import_questions.py --json-file sample_quiz.json --course-code llm_basic
 ```
 
 **验证**：执行完以上步骤后，如果看到类似"导入完成！总题目数: 99"的输出，说明初始化成功。
@@ -266,8 +266,8 @@ uv run python convert_md_to_json.py -f sample_quiz.md
 
 # 导入到数据库
 uv run python import_questions.py \
-  data/output/sample_quiz.json \
-  --course-code ai_cert_exam
+  --json-file sample_quiz.json \
+  --course-code llm_basic
 ```
 
 ### Word 文档格式
@@ -278,8 +278,8 @@ uv run python convert_docx_to_json.py -i data/input/exam_questions.docx
 
 # 导入为固定题集
 uv run python import_questions.py \
-  data/output/exam_questions.json \
-  --course-code ai_cert_exam \
+  --json-file exam_questions.json \
+  --course-code ml_cert_exam \
   --question-set-code exam_set1 \
   --question-set-name "2025年模拟考试题集"
 ```
