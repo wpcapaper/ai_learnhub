@@ -155,6 +155,6 @@ htmlcov/
 .tox/
 
 # script
-/scripts/data/*
-!/scripts/data/input/sampleQuiz.md
-!/scripts/data/input/sample_docx.docx
+scripts/data/*
+!scripts/data/input/sampleQuiz.md
+!scripts/data/input/sample_docx.docx
