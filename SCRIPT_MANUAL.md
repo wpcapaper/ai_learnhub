@@ -103,11 +103,27 @@ uv run python init_course_data.py
 ```
 🚀 Initializing course data...
 📋 Creating database tables...
-✅ Created 2 courses:
+✅ Created 3 courses:
+   - llm_basic: AI认证考试
    - ai_cert_exam: AI认证考试
-   - ml_basic: 机器学习基础
+   - ml_cert_exam: 机器学习认证考试
 ✅ Course data initialization completed!
 ```
+
+> ⚠️ **重要提示：脚本预设的 3 个课程代码**
+>
+> 系统预设了以下 3 个课程代码，导入题目时请使用对应的课程代码：
+>
+> | 课程代码 | 课程名称 | 说明 |
+> |---------|---------|------|
+> | `llm_basic` | AI认证考试 | DataWhale LLM基础知识题库 |
+> | `ai_cert_exam` | AI认证考试 | AI认证考试题库 |
+> | `ml_cert_exam` | 机器学习认证考试 | 机器学习认证考试题库 |
+>
+> 导入题目时必须使用 `--course-code` 参数指定上述课程代码之一，例如：
+> ```bash
+> uv run python import_questions.py data/output/sample_quiz.json --course-code llm_basic
+> ```
 
 **自定义课程：**
 
@@ -231,7 +247,7 @@ uv run python import_questions.py \
 
 **参数说明：**
 - `--json-file` / `-f`: JSON 文件路径（必填）
-- `--course-code` / `-c`: 课程代码（必填）
+- `--course-code` / `-c`: 课程代码（必填，请使用预设课程代码：`llm_basic`、`ai_cert_exam`、`ml_cert_exam`）
 - `--question-set-code` / `-s`: 题集代码（可选）
 - `--question-set-name` / `-n`: 题集名称（可选）
 - `--init-db` / `-i`: 初始化数据库表（首次使用）
@@ -393,11 +409,14 @@ uv run python import_questions.py \
 
 ### 1. 导入时报错 "Course not found"
 
-**原因：** 课程不存在，需要先创建课程。
+**原因：** 课程代码错误或课程不存在。请确保使用预设的 3 个课程代码之一：
+- `llm_basic` - AI认证考试
+- `ai_cert_exam` - AI认证考试  
+- `ml_cert_exam` - 机器学习认证考试
 
 **解决：**
 ```bash
-# 创建课程
+# 创建预设课程
 uv run python init_course_data.py
 
 # 或编辑 init_course_data.py 添加自定义课程
@@ -573,10 +592,10 @@ uv run python convert_md_to_json.py
 # 3.1 或指定文件名
 uv run python convert_md_to_json.py -f my_questions.md
 
-# 4. 导入题目
+# 4. 导入题目（注意：请使用预设的课程代码：llm_basic、ai_cert_exam、ml_cert_exam）
 uv run python import_questions.py \
   data/output/sample_quiz.json \
-  --course-code ai_cert_exam
+  --course-code llm_basic
 ```
 
 ### 完整流程（固定题集）
@@ -593,10 +612,10 @@ uv run python init_course_data.py
 # 3. 转换数据
 uv run python convert_docx_to_json.py -i data/input/exam.docx
 
-# 4. 导入题目
+# 4. 导入题目（注意：请使用预设的课程代码：llm_basic、ai_cert_exam、ml_cert_exam）
 uv run python import_questions.py \
   data/output/exam.docx.json \
-  --course-code ai_cert_exam \
+  --course-code ml_cert_exam \
   --question-set-code exam_set1 \
   --question-set-name "考试题集"
 ```
