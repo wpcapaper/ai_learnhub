@@ -124,11 +124,21 @@ async def finish_batch(
     db: Session = Depends(get_db)
 ):
     """完成批次（统一对答案）"""
+    import logging
+    import traceback
+    logger = logging.getLogger(__name__)
+
     try:
+        logger.info(f"[finish_batch] 开始处理 - user_id={user_id}, batch_id={batch_id}")
         result = QuizService.finish_batch(db, user_id, batch_id)
+        logger.info(f"[finish_batch] 成功完成 - result={result}")
         return BatchResultResponse(**result)
     except ValueError as e:
+        logger.error(f"[finish_batch] 业务错误 - {str(e)} - user_id={user_id}, batch_id={batch_id}")
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"[finish_batch] 未知错误 - {str(e)}\n{traceback.format_exc()} - user_id={user_id}, batch_id={batch_id}")
+        raise HTTPException(status_code=500, detail="服务器内部错误")
 
 
 @router.get("/{batch_id}/questions", response_model=List[QuestionInBatchResponse])
