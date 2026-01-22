@@ -240,13 +240,18 @@ uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /pat
 #### 步骤 2：导入 JSON 到数据库
 
 ```bash
-uv run python import_questions.py \
-  data/output/sample_quiz.json \
-  --course-code ai_cert_exam
+# 指定单个文件（文件默认从 data/output/ 目录读取）
+uv run python import_questions.py --json-file sample_quiz.json --course-code llm_basic
+
+# 指定完整路径
+uv run python import_questions.py --json-file /path/to/questions.json --course-code llm_basic
+
+# 导入多个文件（用逗号分隔）
+uv run python import_questions.py --json-file file1.json,file2.json --course-code llm_basic
 ```
 
 **参数说明：**
-- `--json-file` / `-f`: JSON 文件路径（必填）
+- `--json-file` / `-f`: JSON 文件路径（必填，默认从 `data/output/` 目录读取；支持多文件，用逗号分隔）
 - `--course-code` / `-c`: 课程代码（必填，请使用预设课程代码：`llm_basic`、`ai_cert_exam`、`ml_cert_exam`）
 - `--question-set-code` / `-s`: 题集代码（可选）
 - `--question-set-name` / `-n`: 题集名称（可选）
@@ -378,14 +383,16 @@ D. 无需数据
 #### 步骤 2：导入 JSON 为固定题集
 
 ```bash
+# 文件默认从 data/output/ 目录读取，可省略路径
 uv run python import_questions.py \
-  data/output/exam_questions.json \
-  --course-code ai_cert_exam \
+  --json-file exam_questions.json \
+  --course-code ml_cert_exam \
   --question-set-code exam_set1 \
   --question-set-name "2025年模拟考试题集"
 ```
 
 **参数说明：**
+- `--json-file` / `-f`: JSON 文件路径（可选，默认从 `data/output/` 目录读取）
 - `--question-set-code`: 固定题集代码（必填）
 - `--question-set-name`: 固定题集名称（必填）
 
@@ -513,19 +520,26 @@ def init_course_data(db: Session):
 
 **使用：**
 ```bash
-# 普通题集导入
-uv run python import_questions.py -f questions.json -c ai_cert_exam
+# 指定文件（默认从 data/output/ 目录读取）
+uv run python import_questions.py -f questions.json -c llm_basic
+
+# 指定完整路径
+uv run python import_questions.py -f /path/to/questions.json -c llm_basic
 
 # 固定题集导入
 uv run python import_questions.py \
   -f exam.json \
-  -c ai_cert_exam \
+  -c ml_cert_exam \
   -s exam_set1 \
   -n "考试题集"
 
 # 多文件导入（用逗号分隔）
-uv run python import_questions.py -f file1.json,file2.json -c ai_cert_exam
+uv run python import_questions.py -f file1.json,file2.json -c llm_basic
 ```
+
+**说明：**
+- `--json-file` 参数默认从 `data/output/` 目录读取
+- 文件路径如果未使用绝对路径且不以 `data/output/` 开头，会自动拼接 `data/output/` 前缀
 
 ---
 
@@ -593,9 +607,8 @@ uv run python convert_md_to_json.py
 uv run python convert_md_to_json.py -f my_questions.md
 
 # 4. 导入题目（注意：请使用预设的课程代码：llm_basic、ai_cert_exam、ml_cert_exam）
-uv run python import_questions.py \
-  data/output/sample_quiz.json \
-  --course-code llm_basic
+# 指定文件（文件默认从 data/output/ 目录读取）
+uv run python import_questions.py --json-file sample_quiz.json --course-code llm_basic
 ```
 
 ### 完整流程（固定题集）
