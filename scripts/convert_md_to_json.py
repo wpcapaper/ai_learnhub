@@ -1,11 +1,12 @@
 """
-题库转换脚本 - 专门处理 sampleQuiz.md 文件
-基于 script/convert_questions.py 的逻辑，针对 sampleQuiz.md 的特殊格式进行调整
+题库转换脚本 - 将 Markdown 格式的题库转换为 JSON/CSV 格式
+支持任意 Markdown 文件（默认: sampleQuiz.md）
 """
 import re
 import json
 import csv
 import sys
+import argparse
 from pathlib import Path
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -296,32 +297,52 @@ def process_sample_quiz_file(vault_path: Path, output_dir: Path):
 
 def main():
     """主函数"""
-    # 设置路径
+    parser = argparse.ArgumentParser(description='将 Markdown 格式的题库转换为 JSON/CSV 格式')
+    parser.add_argument(
+        '-f', '--file',
+        type=str,
+        default='sampleQuiz.md',
+        help='输入文件名（默认: sampleQuiz.md）。文件应位于 scripts/data/input/ 目录'
+    )
+    parser.add_argument(
+        '-i', '--input-dir',
+        type=str,
+        default=None,
+        help='输入目录路径（默认: scripts/data/input/）'
+    )
+    parser.add_argument(
+        '-o', '--output-dir',
+        type=str,
+        default=None,
+        help='输出目录路径（默认: scripts/data/output/）'
+    )
+    args = parser.parse_args()
+
     script_dir = Path(__file__).parent
-    input_dir = script_dir / "data" / "input"
-    output_dir = script_dir / "data" / "output"
+    input_dir = Path(args.input_dir) if args.input_dir else script_dir / "data" / "input"
+    output_dir = Path(args.output_dir) if args.output_dir else script_dir / "data" / "output"
 
     print(f"脚本目录: {script_dir}")
     print(f"输入目录: {input_dir}")
     print(f"输出目录: {output_dir}\n")
 
-    # 处理sampleQuiz.md文件
-    sample_quiz_path = input_dir / "sampleQuiz.md"
+    quiz_path = input_dir / args.file
 
-    if not sample_quiz_path.exists():
-        print(f"❌ 文件不存在: {sample_quiz_path}")
+    if not quiz_path.exists():
+        print(f"❌ 文件不存在: {quiz_path}")
+        print(f"\n提示：请确保文件位于 {input_dir} 目录下")
         sys.exit(1)
 
-    all_questions = process_sample_quiz_file(sample_quiz_path, output_dir)
+    all_questions = process_sample_quiz_file(quiz_path, output_dir)
 
     # 生成转换报告
-    report_path = output_dir / "sampleQuiz_conversion_report.md"
+    report_path = output_dir / f"{quiz_path.stem}_conversion_report.md"
     with open(report_path, 'w', encoding='utf-8') as f:
-        f.write("# sampleQuiz.md 数据转换报告\n\n")
+        f.write(f"# {quiz_path.name} 数据转换报告\n\n")
         f.write(f"## 转换时间\n\n{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
         f.write(f"## 源文件\n\n")
         f.write(f"- 输入目录: `{input_dir}`\n")
-        f.write(f"- 源文件: `{sample_quiz_path.name}`\n")
+        f.write(f"- 源文件: `{quiz_path.name}`\n")
         f.write(f"- 输出目录: `{output_dir}`\n\n")
         f.write(f"## 转换结果\n\n")
         f.write(f"- 总题数: {len(all_questions)}\n")
@@ -329,16 +350,16 @@ def main():
         f.write(f"- 多选题: {sum(1 for q in all_questions if q['question_type'] == 'multiple_choice')}\n")
         f.write(f"- 判断题: {sum(1 for q in all_questions if q['question_type'] == 'true_false')}\n")
         f.write(f"\n## 输出文件\n\n")
-        f.write(f"- JSON: `{sample_quiz_path.stem}.json`\n")
-        f.write(f"- CSV: `{sample_quiz_path.stem}.csv`\n")
+        f.write(f"- JSON: `{quiz_path.stem}.json`\n")
+        f.write(f"- CSV: `{quiz_path.stem}.csv`\n")
 
     print(f"\n✅ 转换完成!")
     print(f"\n转换报告已保存: {report_path}")
     print(f"\n下一步:")
-    print(f"  1. 检查转换结果: {output_dir / f'{sample_quiz_path.stem}.json'}")
+    print(f"  1. 检查转换结果: {output_dir / f'{quiz_path.stem}.json'}")
     print(f"  2. 如需导入数据库，运行:")
     print(f"     cd {script_dir}")
-    print(f"     uv run python import_questions.py {output_dir / f'{sample_quiz_path.stem}.json'}")
+    print(f"     uv run python import_questions.py {output_dir / f'{quiz_path.stem}.json'}")
 
 
 if __name__ == "__main__":
