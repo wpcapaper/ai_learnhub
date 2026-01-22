@@ -51,7 +51,7 @@ your-project/
 │   ├── init_course_data.py
 │   ├── import_questions.py
 │   ├── convert_docx_to_json.py
-│   ├── convert_sample_quiz.py
+│   ├── convert_md_to_json.py
 │   ├── pyproject.toml
 │   └── uv.lock
 ├── src/
@@ -158,17 +158,40 @@ def init_course_data(db: Session):
 
 ```bash
 cd scripts
-uv run python convert_sample_quiz.py
+uv run python convert_md_to_json.py
+
+# 指定文件名
+uv run python convert_md_to_json.py -f my_questions.md
+
+# 指定完整路径
+uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /path/to/output
+```
+
+**参数说明：**
+- `-f` / `--file`: 输入文件名（默认: `sampleQuiz.md`）
+- `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
+- `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
+
+**使用示例：**
+```bash
+# 使用默认文件名（sampleQuiz.md）
+uv run python convert_md_to_json.py
+
+# 指定文件名
+uv run python convert_md_to_json.py -f my_questions.md
+
+# 指定完整路径
+uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /path/to/output
 ```
 
 **要求：**
 - 确保 `scripts/data/input/sampleQuiz.md` 文件存在
-- 文件格式参考：`scripts/convert_sample_quiz_README.md`
+- 文件格式参考：`scripts/convert_md_to_json_README.md`
 
 **输出文件：**
-- `scripts/data/output/sampleQuiz.json` - JSON 格式
-- `scripts/data/output/sampleQuiz.csv` - CSV 格式
-- `scripts/data/output/sampleQuiz_conversion_report.md` - 转换报告
+- `{output_dir}/{filename}.json` - JSON 格式
+- `{output_dir}/{filename}.csv` - CSV 格式
+- `{output_dir}/{filename}_conversion_report.md` - 转换报告
 
 **输出示例：**
 ```
@@ -402,7 +425,7 @@ uv run python init_course_data.py
 **原因：** 文件格式不符合要求。
 
 **解决：**
-- 参考 `scripts/convert_sample_quiz_README.md` 检查格式
+- 参考 `scripts/convert_md_to_json_README.md` 检查格式
 - 确保题目格式为：`数字、 [题型] 题目内容`
 - 确保选项格式为：` A：选项内容`
 
@@ -487,18 +510,31 @@ uv run python import_questions.py -f file1.json,file2.json -c ai_cert_exam
 
 ---
 
-### convert_sample_quiz.py
+### convert_md_to_json.py
 
-**作用：** 将 Markdown 格式的题库（如 sampleQuiz.md）转换为 JSON。
+**作用：** 将 Markdown 格式的题库转换为 JSON/CSV 格式。
 
 **使用：**
 ```bash
-uv run python convert_sample_quiz.py
+# 使用默认文件名（sampleQuiz.md）
+uv run python convert_md_to_json.py
+
+# 指定文件名
+uv run python convert_md_to_json.py -f my_questions.md
+
+# 指定完整路径
+uv run python convert_md_to_json.py -f my_questions.md -i /path/to/input -o /path/to/output
 ```
 
+**参数：**
+- `-f` / `--file`: 输入文件名（默认: `sampleQuiz.md`）
+- `-i` / `--input-dir`: 输入目录路径（默认: `scripts/data/input/`）
+- `-o` / `--output-dir`: 输出目录路径（默认: `scripts/data/output/`）
+
 **说明：**
-- 默认读取 `data/input/sampleQuiz.md`
-- 输出到 `data/output/` 目录
+- 支持任意 Markdown 格式的题库文件
+- 输出 JSON、CSV 格式及转换报告
+- 文件格式参考：`scripts/convert_md_to_json_README.md`
 
 ---
 
@@ -531,8 +567,11 @@ uv run python init_db.py
 # 2. 创建课程
 uv run python init_course_data.py
 
-# 3. 转换数据
-uv run python convert_sample_quiz.py
+ # 3. 转换数据（使用默认文件名 sampleQuiz.md）
+uv run python convert_md_to_json.py
+
+# 3.1 或指定文件名
+uv run python convert_md_to_json.py -f my_questions.md
 
 # 4. 导入题目
 uv run python import_questions.py \
