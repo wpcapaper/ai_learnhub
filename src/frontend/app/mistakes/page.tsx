@@ -74,6 +74,23 @@ function MistakesPageContent() {
     setUser(null);
   };
 
+  const handleRetryAll = async () => {
+    if (!user) return;
+
+    try {
+      // 调用全部错题重练API，创建包含所有错题的批次
+      const result = await apiClient.retryAllMistakes(user.id, courseId || undefined);
+
+      // 跳转到刷题页面，传递batch_id参数
+      // 关键业务逻辑：通过batch_id让刷题页面加载所有错题
+      const url = `/quiz?batch_id=${result.batch_id}`;
+      window.location.href = url;
+    } catch (error) {
+      console.error('Failed to start wrong answer practice:', error);
+      alert('开始错题重练失败: ' + (error as Error).message);
+    }
+  };
+
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -188,6 +205,21 @@ function MistakesPageContent() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* 错题重练按钮 */}
+        {stats && stats.total_wrong > 0 && (
+          <div className="mb-6">
+            <button
+              onClick={handleRetryAll}
+              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-lg shadow-md transition-all hover:shadow-lg"
+            >
+              开始错题重练 ({stats.total_wrong} 题)
+            </button>
+            <p className="text-sm text-gray-600 mt-2 text-center">
+              系统会自动创建包含所有错题的刷题批次
+            </p>
           </div>
         )}
 
