@@ -9,6 +9,9 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // 关键业务逻辑：状态用于控制刷题模式点击时的检查流程
+  // checkingQuiz: 正在检查是否可以开始刷题（用于显示加载状态）
+  const [checkingQuiz, setCheckingQuiz] = useState<string | null>(null);
 
   const fetchCourses = async () => {
     setLoading(true);
@@ -46,6 +49,49 @@ export default function CoursesPage() {
   const handleLogout = () => {
     localStorage.removeItem('userId');
     setUser(null);
+  };
+
+  /**
+   * 处理刷题模式点击
+   *
+   * 关键业务逻辑：
+   * - 默认使用 allow_new_round=false 检查是否有未刷过的题
+   * - 如果返回题目数=0 且课程题目总数>0，弹窗询问是否开启新轮
+   * - 如果用户确认，则使用 allow_new_round=true 跳转到刷题页面
+   */
+  const handleStartQuiz = async (course: Course) => {
+    if (!user) {
+      alert('请先登录');
+      return;
+    }
+
+    setCheckingQuiz(course.id);
+
+    try {
+      // 关键业务逻辑：默认 allow_new_round=false，只检查当前轮次未刷过的题
+      const nextQuestions = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/review/next?user_id=${user.id}&course_type=${course.course_type}&batch_size=1&allow_new_round=false`
+      ).then(res => res.json());
+
+      // 关键业务逻辑：如果没有未刷过的题，且课程有题目，询问是否开启新轮
+      if (nextQuestions.length === 0 && (course.total_questions || 0) > 0) {
+        const shouldStartNewRound = confirm('当前轮次已刷完，是否开启新的轮次？');
+        if (shouldStartNewRound) {
+          // 用户确认开启新轮，跳转到刷题页面（后端会自动开启新轮）
+          window.location.href = `/quiz?course_id=${course.id}`;
+        } else {
+          // 用户取消，不做任何操作
+          setCheckingQuiz(null);
+        }
+      } else {
+        // 仍有未刷过的题，直接跳转到刷题页面
+        window.location.href = `/quiz?course_id=${course.id}`;
+      }
+    } catch (error) {
+      console.error('Failed to check quiz availability:', error);
+      alert('检查刷题状态失败');
+      setCheckingQuiz(null);
+    }
   };
 
   if (!user) {
@@ -177,12 +223,14 @@ export default function CoursesPage() {
 
                 <div className="border-t border-gray-200">
                   <div className="grid grid-cols-3 gap-2 p-4">
-                    <Link
-                      href={`/quiz?course_id=${course.id}`}
-                      className="block bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
+                    {/* 关键业务逻辑：刷题模式按钮改为可点击的按钮，增加检查逻辑 */}
+                    <button
+                      onClick={() => handleStartQuiz(course)}
+                      disabled={checkingQuiz === course.id}
+                      className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      刷题模式
-                    </Link>
+                      {checkingQuiz === course.id ? '检查中...' : '刷题模式'}
+                    </button>
                     <Link
                       href={`/exam?course_id=${course.id}`}
                       className="block bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
