@@ -17,6 +17,11 @@ function QuizContent() {
   const [completed, setCompleted] = useState(false);
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
   const [autoStartAttempted, setAutoStartAttempted] = useState(false);
+  // 关键业务逻辑：状态用于控制"开启新的批次"按钮的显示
+  // canStartNewBatch: 当前课程是否还有未刷过的题（true=可开启新批次）
+  // checkingNewBatch: 正在检查是否可以开启新批次（用于显示加载状态）
+  const [canStartNewBatch, setCanStartNewBatch] = useState(false);
+  const [checkingNewBatch, setCheckingNewBatch] = useState(false);
   const searchParams = useSearchParams();
   const courseId = searchParams.get('course_id');
   const batchId = searchParams.get('batch_id');
@@ -179,6 +184,10 @@ function QuizContent() {
 
         const updatedQuestions = await apiClient.getBatchQuestions(userId, batch.id);
         setQuestions(updatedQuestions);
+
+        // 关键业务逻辑：批次完成后，检查是否可以开启新批次
+        // 如果当前课程还有未刷过的题，则显示"开启新的批次"按钮
+        checkCanStartNewBatch();
       } catch (error) {
         console.error('Failed to finish batch:', error);
         alert('完成批次失败');
@@ -189,6 +198,48 @@ function QuizContent() {
   const currentQuestion = questions[currentIndex];
   const allAnswered = questions.every(q => q.user_answer !== null);
   const canSubmit = currentQuestion?.user_answer !== null;
+
+  /**
+   * 检查是否可以开启新批次
+   *
+   * 关键业务逻辑：
+   * - 通过调用 getNextQuestions API 检查当前课程是否还有未刷过的题
+   * - 如果返回题目数 > 0，说明还有未刷过的题，可以开启新批次
+   * - 如果返回题目数 = 0，说明所有题目都已刷完，不显示按钮
+   */
+  const checkCanStartNewBatch = async () => {
+    if (!userId || !courseId) return;
+
+    setCheckingNewBatch(true);
+    try {
+      // 关键业务逻辑：尝试获取下一批题目，如果返回题目数 > 0，说明还有未刷过的题
+      // 注意：这里使用 course_type，需要从 course 对象中获取
+      // 关键业务逻辑：allow_new_round=false 表示只检查当前轮次未刷过的题，不开启新轮
+      const courseType = course?.course_type || 'exam';
+      const nextQuestions = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/review/next?user_id=${userId}&course_type=${courseType}&batch_size=1&allow_new_round=false`)
+        .then(res => res.json());
+      setCanStartNewBatch(nextQuestions.length > 0);
+    } catch (error) {
+      console.error('Failed to check new batch availability:', error);
+      setCanStartNewBatch(false);
+    } finally {
+      setCheckingNewBatch(false);
+    }
+  };
+
+  /**
+   * 处理开启新批次的操作
+   *
+   * 关键业务逻辑：
+   * - 用户点击"开启新的批次"按钮后，直接调用 startBatchDirect 开启新批次
+   * - 无需返回课程页重新选择，提供更流畅的用户体验
+   */
+  const handleStartNewBatch = async () => {
+    if (!userId || !courseId) return;
+
+    // 关键业务逻辑：开启新批次，重置答题状态
+    await startBatchDirect(userId, courseId);
+  };
 
   useEffect(() => {
     setSelectedOptions(new Set());
@@ -223,18 +274,36 @@ function QuizContent() {
               <p>做对: {questions.filter(q => q.is_correct === true).length} 题</p>
               <p>做错: {questions.filter(q => q.is_correct === false).length} 题</p>
             </div>
-            <button
-              onClick={() => {
-                window.location.href = '/courses';
-                setBatch(null);
-                setQuestions([]);
-                setCurrentIndex(0);
-                setCompleted(false);
-              }}
-              className="w-full bg-blue-600 text-white py-3 rounded-md hover:bg-blue-700"
-            >
-              返回课程
-            </button>
+            {/* 关键业务逻辑：按钮区域布局
+               - 如果有未刷过的题，显示"开启新的批次"和"返回课程"两个按钮
+               - 如果所有题都已刷完，只显示"返回课程"按钮 */}
+            <div className="flex gap-3">
+              {/* 开启新的批次按钮：仅在 canStartNewBatch 为 true 时显示 */}
+              {canStartNewBatch && (
+                <button
+                  onClick={handleStartNewBatch}
+                  disabled={checkingNewBatch}
+                  className="flex-1 bg-green-600 text-white py-3 rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {checkingNewBatch ? '检查中...' : '开启新的批次'}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  window.location.href = '/courses';
+                  setBatch(null);
+                  setQuestions([]);
+                  setCurrentIndex(0);
+                  setCompleted(false);
+                  setCanStartNewBatch(false);
+                }}
+                className={`py-3 rounded-md hover:bg-blue-700 text-white ${
+                  canStartNewBatch ? 'flex-1 bg-blue-600' : 'w-full bg-blue-600'
+                }`}
+              >
+                返回课程
+              </button>
+            </div>
           </div>
 
           <div className="space-y-4">
