@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models import QuizBatch, BatchAnswer, UserLearningRecord, UserAnswerHistory
+from app.models import QuizBatch, BatchAnswer, UserAnswerHistory
 from app.services import ReviewService
 
 router = APIRouter(prefix="/mistakes", tags=["错题管理"])
@@ -17,6 +17,12 @@ class RetryRequest(BaseModel):
     user_id: str
     course_id: Optional[str] = None
     batch_size: int = 10
+
+
+class RetryAllRequest(BaseModel):
+    """全部错题重练请求"""
+    user_id: str
+    course_id: Optional[str] = None  # 可选，用于筛选特定课程的错题
 
 
 @router.get("", response_model=List[dict])
@@ -208,4 +214,89 @@ def retry_wrong_questions(
             }
             for q in questions_to_retry
         ]
+    }
+
+
+@router.post("/retry-all", response_model=dict)
+def retry_all_wrong_questions(
+    request: RetryAllRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    重练错题本中的全部错题
+
+    业务逻辑说明：
+    - 获取错题本中的所有错题（无数量限制）
+    - 创建刷题批次，批次大小 = 错题总数
+    - 支持按课程筛选（course_id参数）
+    - 复用现有的QuizBatch和BatchAnswer模型
+    - 与现有错题重练接口/mistakes/retry完全解耦，不污染已有功能
+
+    Args:
+        request: 包含user_id和可选的course_id
+
+    Returns:
+        dict: 包含batch_id和题目列表
+            {
+                "batch_id": "批次ID",
+                "questions": [...],  # 所有错题
+                "total_count": 错题总数
+            }
+    """
+    import uuid
+    from datetime import datetime
+
+    # 获取错题本中的所有错题（不限制数量）
+    # 关键业务逻辑：使用limit=10000确保获取所有错题，而非默认的100条
+    wrong_data = ReviewService.get_wrong_questions(
+        db, request.user_id, request.course_id, limit=10000
+    )
+    wrong_questions = wrong_data["questions"]
+
+    # 如果没有错题，返回提示
+    if not wrong_questions:
+        raise HTTPException(status_code=404, detail="没有错题可重练")
+
+    # 创建批次，批次大小 = 错题总数
+    # 关键业务逻辑：创建包含所有错题的批次，而不是默认的10题批次
+    # 使用mode="mistakes_retry"标识这是错题重练批次，与普通练习模式区分
+    batch = QuizBatch(
+        id=str(uuid.uuid4()),
+        user_id=request.user_id,
+        batch_size=len(wrong_questions),
+        mode="mistakes_retry",
+        started_at=datetime.utcnow(),
+        status="in_progress"
+    )
+    db.add(batch)
+    db.flush()
+
+    # 为每道错题创建答题记录
+    # 关键业务逻辑：批次包含错题本中的所有错题，确保用户可以一次性重练所有错题
+    for question in wrong_questions:
+        answer = BatchAnswer(
+            id=str(uuid.uuid4()),
+            batch_id=batch.id,
+            question_id=question.id,
+            user_answer=None,
+            is_correct=None,
+            answered_at=None
+        )
+        db.add(answer)
+
+    db.commit()
+    db.refresh(batch)
+
+    return {
+        "batch_id": batch.id,
+        "questions": [
+            {
+                "id": q.id,
+                "content": q.content,
+                "question_type": q.question_type,
+                "options": q.options
+            }
+            for q in wrong_questions
+        ],
+        "total_count": len(wrong_questions)
     }

@@ -19,6 +19,7 @@ function QuizContent() {
   const [autoStartAttempted, setAutoStartAttempted] = useState(false);
   const searchParams = useSearchParams();
   const courseId = searchParams.get('course_id');
+  const batchId = searchParams.get('batch_id');
 
   useEffect(() => {
     const savedUserId = localStorage.getItem('userId');
@@ -30,12 +31,17 @@ function QuizContent() {
       apiClient.getCourse(courseId).then(setCourse).catch(console.error);
     }
 
-    // 自动开始批次（使用 savedUserId 而非状态，避免异步更新问题）
-    if (savedUserId && courseId && !batch && !autoStartAttempted) {
+    // 关键业务逻辑：优先处理batch_id参数，支持从错题本直接跳转
+    // 如果提供了batch_id，直接加载该批次（用于错题重练）
+    // 如果只提供了course_id，自动创建新批次（普通刷题模式）
+    if (savedUserId && batchId && !batch && !autoStartAttempted) {
+      setAutoStartAttempted(true);
+      loadBatchDirect(savedUserId, batchId);
+    } else if (savedUserId && courseId && !batch && !autoStartAttempted) {
       setAutoStartAttempted(true);
       startBatchDirect(savedUserId, courseId);
     }
-  }, [courseId]);
+  }, [courseId, batchId]);
 
   const startBatchDirect = async (uid: string, cid: string) => {
     setLoading(true);
@@ -49,6 +55,24 @@ function QuizContent() {
     } catch (error) {
       console.error('Failed to start batch:', error);
       alert('开始批次失败: ' + (error as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadBatchDirect = async (uid: string, bid: string) => {
+    setLoading(true);
+    try {
+      // 关键业务逻辑：获取已存在的批次信息（用于错题重练）
+      const batchData = await apiClient.getBatch(uid, bid);
+      setBatch(batchData);
+      const questionsData = await apiClient.getBatchQuestions(uid, bid);
+      setQuestions(questionsData);
+      setCurrentIndex(0);
+      setCompleted(false);
+    } catch (error) {
+      console.error('Failed to load batch:', error);
+      alert('加载批次失败: ' + (error as Error).message);
     } finally {
       setLoading(false);
     }

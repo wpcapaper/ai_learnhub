@@ -159,3 +159,6 @@ scripts/data/input/*
 scripts/data/output/*
 !scripts/data/input/sample_quiz.md
 !scripts/data/input/sample_docx.docx
+
+# macOS
+*.DS_Store
