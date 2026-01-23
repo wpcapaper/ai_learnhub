@@ -26,6 +26,11 @@ class EbbinghausScheduler:
         """
         计算下次复习时间
 
+        关键业务逻辑：
+        - 首次答对（current_stage == 0 且 is_correct == True）→ 直接视为已掌握（stage 8）
+        - 复习题答对（current_stage > 0 且 is_correct == True）→ 进入下一阶段
+        - 答错（is_correct == False）→ 回到第1阶段重新开始
+
         Args:
             current_stage: 当前复习阶段 (0-7)
             is_correct: 是否答对
@@ -34,9 +39,13 @@ class EbbinghausScheduler:
             tuple: (next_stage, next_review_time or None)
         """
         if is_correct:
-            next_stage = min(current_stage + 1, cls.MAX_STAGE)  # 8 = MASTERED
+            # 关键业务逻辑：首次答对直接视为已掌握
+            if current_stage == 0:
+                next_stage = cls.MAX_STAGE  # 新题答对 → 直接掌握
+            else:
+                next_stage = min(current_stage + 1, cls.MAX_STAGE)  # 复习题答对 → 下一阶段
         else:
-            next_stage = 1  # 回到第一阶段
+            next_stage = 1  # 答错 → 回到第1阶段
 
         if next_stage == cls.MAX_STAGE:
             return next_stage, None  # 已掌握
