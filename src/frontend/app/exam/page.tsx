@@ -465,6 +465,12 @@ export default function ExamPage() {
                   {currentQuestion.question_type === 'single_choice' ? '单选题' :
                    currentQuestion.question_type === 'multiple_choice' ? '多选题' : '判断题'}
                 </span>
+                {/* 考试模式中显示题目来源 */}
+                {currentQuestion.question_set_codes && currentQuestion.question_set_codes.length > 0 && (
+                  <span className="px-2 py-1 text-xs font-medium rounded bg-purple-100 text-purple-700">
+                    📚 {currentQuestion.question_set_codes.join(', ')}
+                  </span>
+                )}
               </div>
               <h2 className="text-2xl font-bold mb-6 text-gray-900">
                 <LaTeXRenderer content={currentQuestion.content} />
