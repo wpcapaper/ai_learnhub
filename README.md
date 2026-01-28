@@ -149,12 +149,12 @@ docker-compose up -d
 # 进入后端目录
 cd src/backend
 
-# 安装依赖（使用 uv 更快）
-pip install -r requirements.txt
-# 或使用 uv: uv sync
+# 安装依赖（使用 uv）
+# 如果未安装 uv，先运行: pip install uv
+uv sync
 
 # 启动开发服务器
-uvicorn main:app --host 0.0.0.0 --reload --port 8000
+uv run uvicorn main:app --host 0.0.0.0 --reload --port 8000
 ```
 
 后端服务将在 `http://localhost:8000` 启动
