@@ -3,7 +3,7 @@ FastAPI应用入口
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import users, review, quiz, exam, courses, question_sets, mistakes
+from app.api import users, review, quiz, exam, courses, question_sets, mistakes, rag
 
 app = FastAPI(
     title="AILearn Hub API",
@@ -28,6 +28,7 @@ app.include_router(exam.router, prefix="/api", tags=["考试模式"])
 app.include_router(courses.router, prefix="/api", tags=["课程管理"])
 app.include_router(question_sets.router, prefix="/api", tags=["题集管理"])
 app.include_router(mistakes.router, prefix="/api", tags=["错题管理"])
+app.include_router(rag.router, tags=["RAG"])
 
 
 @app.get("/")
