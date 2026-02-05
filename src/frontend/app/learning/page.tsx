@@ -102,10 +102,10 @@ function LearningPageContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
         <div className="text-center">
-          <div className="inline-block h-8 w-8 border-4 border-t-gray-200 rounded-full animate-spin"></div>
-          <p className="mt-4 text-gray-700">加载中...</p>
+          <div className="inline-block h-8 w-8 border-4 border-t-slate-200 rounded-full animate-spin"></div>
+          <p className="mt-4 text-slate-700">加载中...</p>
         </div>
       </div>
     );
@@ -113,8 +113,8 @@ function LearningPageContent() {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="bg-red-100 text-red-700 px-6 py-4 rounded-lg max-w-md">
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <div className="bg-red-50 text-red-700 px-6 py-4 rounded-lg max-w-md">
           <p className="font-semibold">加载失败</p>
           <p className="mt-2">{error}</p>
           <button
@@ -130,8 +130,8 @@ function LearningPageContent() {
 
   if (!course) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-700">课程不存在</p>
+      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+        <p className="text-slate-700">课程不存在</p>
       </div>
     );
   }
@@ -145,14 +145,14 @@ function LearningPageContent() {
             <div className="flex items-center">
               <button
                 onClick={() => router.push('/courses')}
-                className="text-2xl font-bold text-gray-800 hover:text-gray-900"
+                className="text-2xl font-bold text-slate-800 hover:text-slate-900"
               >
                 AILearn Hub
               </button>
-              <span className="ml-4 text-gray-400">/</span>
+              <span className="ml-4 text-slate-400">/</span>
               <button
                 onClick={() => router.push(`/chapters?course_id=${courseId}`)}
-                className="ml-4 text-2xl font-bold text-gray-800 hover:text-gray-900"
+                className="ml-4 text-xl font-bold text-slate-800 hover:text-slate-900"
               >
                 {course.title}
               </button>
@@ -160,12 +160,12 @@ function LearningPageContent() {
             <div className="flex items-center space-x-4">
               {user && (
                 <>
-                  <span className="text-sm text-gray-700">
+                  <span className="text-sm text-slate-700">
                     {user.nickname || user.username}
                   </span>
                   <button
                     onClick={handleLogout}
-                    className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                    className="text-slate-700 hover:text-slate-900 px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-100 transition-colors"
                   >
                     切换用户
                   </button>
@@ -173,7 +173,7 @@ function LearningPageContent() {
               )}
               <button
                 onClick={() => router.push('/courses')}
-                className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                className="text-slate-700 hover:text-slate-900 px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-100 transition-colors"
               >
                 返回课程
               </button>
@@ -188,30 +188,30 @@ function LearningPageContent() {
         <div className="mb-4">
           <button
             onClick={() => router.push(`/chapters?course_id=${courseId}`)}
-            className="text-gray-600 hover:text-gray-900 font-medium"
+            className="text-slate-600 hover:text-slate-900 font-medium hover:underline"
           >
             ← 返回章节列表
           </button>
         </div>
 
-        <div className="flex gap-6 min-h-[calc(100vh-12rem)]">
-          {/* 左侧：Markdown 阅读器（占据更大空间） */}
-          <div className="flex-[2] flex flex-col min-w-0 min-h-0">
+        <div className="flex gap-6 h-[calc(100vh-12rem)]">
+          {/* 左侧：Markdown 阅读器（占据更大空间，可以滚动） */}
+          <div className="flex-[2] flex flex-col min-w-0 overflow-hidden">
             {/* 当前章节标题 */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
-              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+            <div className="bg-white border-b border-slate-200 px-6 py-4 flex-shrink-0">
+              <h1 className="text-xl font-bold text-slate-900 mb-2">
                 {currentChapter?.title}
               </h1>
               {/* 阅读进度指示 */}
               {currentChapter?.user_progress && (
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-gray-600">
+                  <span className="text-sm text-slate-600">
                     阅读进度: {currentChapter.user_progress.last_percentage.toFixed(1)}%
                   </span>
                   {!currentChapter.user_progress.is_completed && (
                     <button
                       onClick={handleChapterComplete}
-                      className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                      className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors"
                     >
                       标记为已完成
                     </button>
@@ -222,7 +222,7 @@ function LearningPageContent() {
 
             {/* Markdown 内容 */}
             {currentChapter && (
-              <div className="flex-1 overflow-y-auto bg-white min-h-0">
+              <div className="flex-1 overflow-y-auto bg-white">
                 <MarkdownReader
                   content={currentChapter.content_markdown}
                   onProgressChange={handleProgressChange}
@@ -231,8 +231,8 @@ function LearningPageContent() {
             )}
           </div>
 
-          {/* 右侧：AI 助手 */}
-          <div className="flex-1 flex-shrink-0 w-96 bg-white border-l border-gray-200 min-h-0">
+          {/* 右侧：AI 助手（固定在视口内） */}
+          <div className="flex-1 flex-shrink-0 w-96 bg-white border-l border-slate-200 overflow-hidden">
             {user ? (
               <AIAssistant
                 chapterId={currentChapter?.id || ''}
@@ -240,7 +240,7 @@ function LearningPageContent() {
               />
             ) : (
               <div className="h-full flex items-center justify-center p-8">
-                <p className="text-gray-500 text-center text-sm">
+                <p className="text-slate-500 text-center text-sm">
                   请先登录以使用 AI 助手
                 </p>
               </div>

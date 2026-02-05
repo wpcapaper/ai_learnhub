@@ -52,7 +52,7 @@ export default function MarkdownReader({ content, onProgressChange }: MarkdownRe
             const language = match ? match[1] : '';
             const inline = (props as any).inline || className?.includes('language-') === false;
             return !inline ? (
-              <div className="bg-gray-100 rounded-lg my-4 overflow-x-auto">
+              <div className="bg-slate-100 rounded-lg my-4 overflow-x-auto">
                 <SyntaxHighlighter
                   language={language}
                   PreTag="div"
@@ -63,25 +63,25 @@ export default function MarkdownReader({ content, onProgressChange }: MarkdownRe
                 </SyntaxHighlighter>
               </div>
             ) : (
-              <code className="bg-gray-200 px-1 py-0.5 rounded text-sm" {...props}>
+              <code className="bg-slate-200 px-1.5 py-0.5 rounded text-sm" {...props}>
                 {children}
               </code>
             );
           },
           // 自定义标题样式
-          h1: ({ children }) => <h1 className="text-3xl font-bold mb-6 text-gray-900 border-b-2 border-gray-200 pb-3">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-2xl font-bold mb-4 mt-8 text-gray-800">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-xl font-bold mb-3 mt-6 text-gray-800">{children}</h3>,
+          h1: ({ children }) => <h1 className="text-2xl font-bold mb-6 text-slate-900 border-b-2 border-slate-200 pb-3">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-xl font-bold mb-4 mt-8 text-slate-800">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-lg font-bold mb-3 mt-6 text-slate-800">{children}</h3>,
           // 自定义段落样式
-          p: ({ children }) => <p className="mb-4 text-gray-700 leading-relaxed">{children}</p>,
+          p: ({ children }) => <p className="mb-4 text-slate-700 leading-relaxed">{children}</p>,
           // 自定义列表样式
-          ul: ({ children }) => <ul className="mb-4 ml-6 list-disc text-gray-700">{children}</ul>,
-          ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal text-gray-700">{children}</ol>,
+          ul: ({ children }) => <ul className="mb-4 ml-6 list-disc text-slate-700">{children}</ul>,
+          ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal text-slate-700">{children}</ol>,
           li: ({ children }) => <li className="mb-2">{children}</li>,
           // 自定义链接样式
-          a: ({ href, children }) => <a href={href} className="text-blue-600 hover:text-blue-800 underline">{children}</a>,
+          a: ({ href, children }) => <a href={href} className="text-indigo-600 hover:text-indigo-800 underline">{children}</a>,
           // 自定义引用样式
-          blockquote: ({ children }) => <blockquote className="border-l-4 border-gray-300 pl-4 italic my-4 text-gray-600">{children}</blockquote>,
+          blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic my-4 text-slate-600">{children}</blockquote>,
         }}
       >
         {content}
