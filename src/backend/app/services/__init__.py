@@ -5,3 +5,4 @@ from .user_settings_service import UserSettingsService
 from .quiz_service import QuizService
 from .exam_service import ExamService
 from .review_service import ReviewService
+from .learning_service import LearningService

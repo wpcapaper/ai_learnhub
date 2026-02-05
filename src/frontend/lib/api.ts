@@ -30,6 +30,45 @@ export interface Course {
   total_rounds_completed?: number;  // 已完成轮次数
 }
 
+// Learning course interfaces
+export interface Chapter {
+  id: string;
+  course_id: string;
+  title: string;
+  sort_order: number;
+}
+
+export interface ChapterContent {
+  id: string;
+  course_id: string;
+  title: string;
+  content_markdown: string;
+  sort_order: number;
+  user_progress?: UserProgress;
+}
+
+export interface UserProgress {
+  last_position: number;
+  last_percentage: number;
+  is_completed: boolean;
+  last_read_at?: string | null;
+  total_read_time: number;
+}
+
+export interface ChapterProgressUpdate {
+  last_position: number;
+  last_percentage: number;
+}
+
+export interface LearningProgressSummary {
+  course_id: string;
+  course_title: string;
+  total_chapters: number;
+  completed_chapters: number;
+  progress_percentage: number;
+}
+
+
 export interface QuestionSet {
   id: string;
   course_id: string;
@@ -304,6 +343,56 @@ class ApiClient {
     if (courseId) params.append('course_id', courseId);
     return this.fetchJson<Question[]>(`/api/mistakes/?${params.toString()}`);
   }
+
+  // Learning Course APIs
+  async getLearningChapters(courseId: string): Promise<Chapter[]> {
+    return this.fetchJson<Chapter[]>(`/api/learning/${courseId}/chapters`);
+  }
+
+  async getChapterContent(chapterId: string, userId?: string): Promise<ChapterContent> {
+    const params = new URLSearchParams();
+    if (userId) params.append('user_id', userId);
+    return this.fetchJson<ChapterContent>(`/api/learning/${chapterId}/content?${params.toString()}`);
+  }
+
+  async updateReadingProgress(chapterId: string, userId: string, progress: ChapterProgressUpdate): Promise<UserProgress> {
+    return this.fetchJson<UserProgress>(`/api/learning/${chapterId}/progress?user_id=${userId}`, {
+      method: 'POST',
+      body: JSON.stringify(progress),
+    });
+  }
+
+  async markChapterCompleted(chapterId: string, userId: string): Promise<UserProgress> {
+    return this.fetchJson<UserProgress>(`/api/learning/${chapterId}/complete?user_id=${userId}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  }
+
+  async getLearningProgress(courseId: string, userId: string): Promise<LearningProgressSummary> {
+    return this.fetchJson<LearningProgressSummary>(`/api/learning/${courseId}/progress?user_id=${userId}`);
+  }
+
+  // AI 对话 API（流式响应）
+  async aiChatStream(chapterId: string, message: string, userId?: string): Promise<ReadableStream<string>> {
+    const body: any = { chapter_id: chapterId, message };
+    if (userId) body.user_id = userId;
+
+    const response = await fetch(`${this.baseUrl}/api/learning/ai/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI Chat Error: ${response.status} ${response.statusText}`);
+    }
+
+    return response.body as unknown as ReadableStream<string>;
+  }
+
 
   async getMistakesStats(userId: string, courseId?: string): Promise<{ total_wrong: number; wrong_by_course: Record<string, number>; wrong_by_type: Record<string, number> }> {
     const params = new URLSearchParams();

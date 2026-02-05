@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { apiClient, Course, QuestionSet, User } from '@/lib/api';
+import { apiClient, Course, User } from '@/lib/api';
 import Link from 'next/link';
 
 export default function CoursesPage() {
@@ -9,8 +9,6 @@ export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  // 关键业务逻辑：状态用于控制刷题模式点击时的检查流程
-  // checkingQuiz: 正在检查是否可以开始刷题（用于显示加载状态）
   const [checkingQuiz, setCheckingQuiz] = useState<string | null>(null);
 
   const fetchCourses = async () => {
@@ -53,7 +51,7 @@ export default function CoursesPage() {
 
   /**
    * 处理刷题模式点击
-   *
+   * 
    * 关键业务逻辑：
    * - 默认使用 allow_new_round=false 检查是否有未刷过的题
    * - 如果返回题目数=0 且课程题目总数>0，弹窗询问是否开启新轮
@@ -99,16 +97,15 @@ export default function CoursesPage() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="max-w-md w-full mx-auto p-6">
           <div className="bg-white rounded-lg shadow-md p-8">
-            <h1 className="text-3xl font-bold text-center mb-6 text-gray-800">
+            <h1 className="text-3xl font-bold text-center text-gray-800 mb-6">
               AILearn Hub
             </h1>
             <p className="text-center text-gray-700 mb-8">
               请先登录
             </p>
-
             <a
               href="/"
-              className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md py-2.5 px-4 text-center transition-colors"
+              className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md py-3 px-4 text-center transition-colors"
             >
               返回首页
             </a>
@@ -119,7 +116,7 @@ export default function CoursesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col">
       <nav className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-16">
@@ -171,7 +168,7 @@ export default function CoursesPage() {
 
         {loading ? (
           <div className="text-center py-12">
-            <div className="inline-block h-8 w-8 border-4 border-t-gray-300 rounded-full animate-spin"></div>
+            <div className="inline-block h-8 w-8 border-4 border-t-gray-200 rounded-full animate-spin"></div>
             <p className="mt-4 text-gray-700">加载中...</p>
           </div>
         ) : (
@@ -204,6 +201,8 @@ export default function CoursesPage() {
                       </span>
                     )}
                   </div>
+
+                  {/* 考试类课程：显示题目和进度信息 */}
                   {course.course_type === 'exam' && (
                     <div className="text-sm text-gray-600 mb-4">
                       <div className="flex justify-between mb-2">
@@ -219,30 +218,47 @@ export default function CoursesPage() {
                       </div>
                     </div>
                   )}
+
                 </div>
 
                 <div className="border-t border-gray-200">
                   <div className="grid grid-cols-3 gap-2 p-4">
-                    {/* 关键业务逻辑：刷题模式按钮改为可点击的按钮，增加检查逻辑 */}
-                    <button
-                      onClick={() => handleStartQuiz(course)}
-                      disabled={checkingQuiz === course.id}
-                      className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {checkingQuiz === course.id ? '检查中...' : '刷题模式'}
-                    </button>
-                    <Link
-                      href={`/exam?course_id=${course.id}`}
-                      className="block bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
-                    >
-                      考试模式
-                    </Link>
-                    <Link
-                      href={`/mistakes?course_id=${course.id}`}
-                      className="block bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
-                    >
-                      错题本
-                    </Link>
+                    {/* 考试类课程：三个按钮 */}
+                    {course.course_type === 'exam' && (
+                      <>
+                        <button
+                          onClick={() => handleStartQuiz(course)}
+                          disabled={checkingQuiz === course.id}
+                          className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {checkingQuiz === course.id ? '检查中...' : '刷题模式'}
+                        </button>
+                        <Link
+                          href={`/exam?course_id=${course.id}`}
+                          className="block bg-purple-50 hover:bg-purple-100 text-purple-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
+                        >
+                          考试模式
+                        </Link>
+                        <Link
+                          href={`/mistakes?course_id=${course.id}`}
+                          className="block bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
+                        >
+                          错题本
+                        </Link>
+                      </>
+                    )}
+
+                    {/* 学习类课程：单个"开始学习"按钮 */}
+                    {course.course_type === 'learning' && (
+                      <div className="col-span-3">
+                        <button
+                          onClick={() => (window.location.href = `/chapters?course_id=${course.id}`)}
+                          className="w-full bg-green-50 hover:bg-green-100 text-green-700 font-medium rounded-md py-3 px-4 text-center transition-colors"
+                        >
+                          开始学习
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 

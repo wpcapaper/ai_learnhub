@@ -13,6 +13,8 @@ from .question_set import QuestionSet
 from .user_settings import UserSettings
 from .user_course_progress import UserCourseProgress
 from .answer_history import UserAnswerHistory
+from .chapter import Chapter
+from .reading_progress import ReadingProgress
 
 __all__ = [
     "Base",
@@ -26,6 +28,8 @@ __all__ = [
     "UserSettings",
     "UserCourseProgress",
     "UserAnswerHistory",
+    "Chapter",
+    "ReadingProgress",
 ]
 
 
