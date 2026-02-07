@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from app.core.database import get_db
-from app.models import Course
+from app.models import Course, Chapter
 from app.services import LearningService
 
 
@@ -204,36 +204,103 @@ def get_user_progress(
 
 
 @router.post("/ai/chat")
-async def ai_chat(request: ChatRequest):
+async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
-    AI 对话接口（流式响应，返回固定"阿巴阿巴"）
+    AI 课程助手对话接口（流式响应）
 
-    注意：这是预埋的 AI 助手接口，暂时返回固定回复"阿巴阿巴"
-    后续可以接入真实的 AI 模型（如 OpenAI GPT、DeepSeek 等）
+    [开发说明] 这是一个预埋的 AI 助手接口，目前返回固定格式的响应。
+    本函数作为后续接入真实 AI 模型（如 OpenAI GPT、DeepSeek 等）的基础框架。
+
+    [当前输出格式]
+    当前正在学习的章节ID为:{章节id}
+    当前章节markdown为:{markdown内容，截断前50个字符}
+    阿巴阿巴
+
+    [开发指南]
+    1. 如需接入真实 AI 模型，请参考以下步骤：
+       - 在此函数中调用 AI 模型的 API（如 OpenAI、DeepSeek 等）
+       - 将章节内容（chapter.content_markdown）作为上下文传递给 AI
+       - 将用户的 request.message 作为问题传递给 AI
+       - 处理 AI 的返回结果，保持流式响应格式
+
+    2. 需要考虑的功能增强：
+       - 添加用户对话历史记录（实现多轮对话）
+       - 实现章节内容的语义检索（RAG）
+       - 添加知识库增强（基于课程内容构建向量数据库）
+
+    3. 数据库交互说明：
+       - 通过 db: Session = Depends(get_db) 获取数据库会话
+       - 通过 chapter_id 查询 Chapter 模型获取章节内容
+       - Chapter.content_markdown 字段包含完整的 markdown 格式内容
 
     Args:
-        request: 对话请求，包含章节 ID 和用户消息
+        request: 对话请求对象
+            - chapter_id (str): 章节 ID，用于获取当前学习的章节内容
+            - message (str): 用户的消息/问题
+            - user_id (Optional[str]): 用户 ID，用于个性化或记录对话历史
+        db: 数据库会话（通过依赖注入自动获取）
 
     Returns:
-        StreamingResponse: 流式响应
+        StreamingResponse: 流式响应对象，模拟 AI 打字效果
 
     Raises:
-        400: 当请求参数不合法时
+        HTTPException 400: 当请求参数不合法时（章节 ID 或消息内容为空）
+        HTTPException 404: 当指定的章节不存在于数据库时
+
+    Example:
+        >>> request = ChatRequest(
+        ...     chapter_id="550e8400-e29b-41d4-a716-446655440000",
+        ...     message="请解释一下这一章的核心概念"
+        ... )
+        >>> response = await ai_chat(request, db)
     """
+    # 参数验证
     if not request.chapter_id:
         raise HTTPException(status_code=400, detail="章节 ID 不能为空")
     if not request.message:
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
+    # 从数据库查询章节信息
+    # 注意：这里需要查询到章节的 markdown 内容，后续可以将此内容传递给 AI 模型
+    chapter = db.query(Chapter).filter(
+        Chapter.id == request.chapter_id,
+        Chapter.is_deleted == False
+    ).first()
+
+    if not chapter:
+        raise HTTPException(status_code=404, detail=f"章节 {request.chapter_id} 不存在")
+
+    # 获取章节内容并截断前 50 个字符（仅用于演示，后续可传递完整内容给 AI）
+    # 注意：chapter.content_markdown 是实际字符串值，不是 Column 对象
+    markdown_content = chapter.content_markdown
+    markdown_preview = markdown_content[:50] if markdown_content else ""
+
     async def generate_stream():
         """
         生成流式响应
 
-        暂时返回固定的"阿巴阿巴"作为预埋实现
-        模拟流式输出效果
+        [开发说明] 当前实现：
+        - 返回章节信息和固定回复"阿巴阿巴"
+        - 模拟流式输出效果（每个字符间隔 50ms）
+
+        [后续修改建议]
+        - 替换为调用真实 AI 模型 API
+        - 将 chapter.content_markdown 作为上下文传递给 AI
+        - 将 request.message 作为用户问题传递给 AI
+        - 保持流式返回格式，逐字符或逐块输出 AI 响应
         """
-        response_text = "阿巴阿巴"
+        # 构建响应文本
+        # 格式：章节ID信息 + Markdown预览 + 固定回复
+        response_text = (
+            f"当前正在学习的章节ID为:{chapter.id}\n"
+            f"当前章节markdown为:\n"
+            f"```markdown\n{markdown_preview}...\n```\n"
+            f"\n\n🤖：阿巴阿巴"
+        )
+
         # 模拟流式输出，每个字符间隔 50ms
+        # [开发说明] 这是为了模拟 AI 打字效果的预埋实现
+        # 后续可替换为真实的 AI 流式输出
         for char in response_text:
             yield char
             await asyncio.sleep(0.05)
