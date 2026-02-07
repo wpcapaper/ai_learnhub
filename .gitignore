@@ -153,3 +153,15 @@ env/
 .coverage
 htmlcov/
 .tox/
+
+# script
+scripts/data/input/*
+scripts/data/output/*
+!scripts/data/input/sample_quiz.md
+!scripts/data/input/sample_docx.docx
+ 
+# courses (学习课程 markdown 文件)
+/courses/
+ 
+# macOS
+*.DS_Store

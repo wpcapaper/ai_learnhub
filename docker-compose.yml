@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    container_name: ailearn-backend
+    environment:
+      - DATABASE_URL=sqlite:///./data/app.db
+      - DEV_MODE=true
+      - SECRET_KEY=your-secret-key-change-me
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/backend/data:/app/data
+
+  frontend:
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:8000
+    container_name: ailearn-frontend
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
