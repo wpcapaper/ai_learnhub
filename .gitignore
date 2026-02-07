@@ -162,6 +162,7 @@ scripts/data/output/*
  
 # courses (学习课程 markdown 文件)
 /courses/
+!/courses/python_basics/
  
 # macOS
 *.DS_Store
