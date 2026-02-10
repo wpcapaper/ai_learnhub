@@ -90,38 +90,30 @@ def init_course_data(db: Session):
     """
     初始化课程数据 - 0-1阶段（无历史数据）
 
-    创建默认课程：
+    创建默认课程（幂等：已存在则跳过）：
     1. LLM基础知识 (llm_basic)
     2. AI认证考试 (ai_cert_exam)
     3. 机器学习认证考试 (ml_cert_exam)
     """
-    courses = [
-        create_course(
-            code="llm_basic",
-            title="AI认证考试",
-            description="datawhale LLM基础知识题库",
-            sort_order=1
-        ),
-        create_course(
-            code="ai_cert_exam",
-            title="AI认证考试",
-            description="AI认证考试题库",
-            sort_order=2
-        ),
-        create_course(
-            code="ml_cert_exam",
-            title="机器学习认证考试",
-            description="机器学习认证考试题库",
-            sort_order=3
-        ),
+    course_specs = [
+        ("llm_basic", "AI认证考试", "datawhale LLM基础知识题库", 1),
+        ("ai_cert_exam", "AI认证考试", "AI认证考试题库", 2),
+        ("ml_cert_exam", "机器学习认证考试", "机器学习认证考试题库", 3),
     ]
 
-    for course in courses:
+    created = []
+    for code, title, description, sort_order in course_specs:
+        existing = db.query(Course).filter(Course.code == code, Course.is_deleted == 0).first()
+        if existing:
+            print(f"   ⏭️  Skipped (already exists): {code}")
+            continue
+        course = create_course(code=code, title=title, description=description, sort_order=sort_order)
         db.add(course)
+        created.append(course)
 
     db.commit()
-    print(f"✅ Created {len(courses)} courses:")
-    for course in courses:
+    print(f"✅ Created {len(created)} courses:")
+    for course in created:
         print(f"   - {course.code}: {course.title}")
 
 

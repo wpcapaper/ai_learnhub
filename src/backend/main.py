@@ -3,7 +3,8 @@ FastAPI应用入口
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api import users, review, quiz, exam, courses, question_sets, mistakes
+from app.api import users, review, quiz, exam, courses, question_sets, mistakes, rag
+from app.models import init_db
 
 app = FastAPI(
     title="AILearn Hub API",
@@ -20,6 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化数据库表"""
+    init_db()
+
+
 # 包含所有路由
 app.include_router(users.router, prefix="/api", tags=["用户管理"])
 app.include_router(review.router, prefix="/api", tags=["复习调度"])
@@ -28,7 +35,7 @@ app.include_router(exam.router, prefix="/api", tags=["考试模式"])
 app.include_router(courses.router, prefix="/api", tags=["课程管理"])
 app.include_router(question_sets.router, prefix="/api", tags=["题集管理"])
 app.include_router(mistakes.router, prefix="/api", tags=["错题管理"])
-
+app.include_router(rag.router, tags=["RAG"])
 
 @app.get("/")
 async def root():
