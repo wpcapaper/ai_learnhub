@@ -1,7 +1,6 @@
 """
 学习课程API
 """
-import asyncio
 import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -10,8 +9,8 @@ from typing import Optional
 from pydantic import BaseModel
 from openai import AsyncOpenAI
 
-from app.core.database import get_db
-from app.models import Course, Chapter
+from app.core.database import get_db, SessionLocal
+from app.models import Chapter
 from app.services import LearningService
 
 
@@ -295,7 +294,9 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     async def generate_stream():
         """
         生成流式响应
+        注意：在异步生成器中使用独立的数据库会话，避免会话生命周期问题
         """
+        db_stream = SessionLocal()
         try:
             stream = await client.chat.completions.create(
                 model=model,
@@ -320,18 +321,14 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                     yield content_piece
             
             # 流式结束后，保存 AI 的回答到数据库
-            # 注意：这里需要一个新的 db session，因为 generate_stream 是异步生成器，
-            # 外部的 db session 可能已经关闭或不在此上下文。
-            # 但 FastAPI 的 Depends(get_db) 在 response 结束前通常是存活的。
-            # 为了安全，我们这里简单调用，假设 db 还能用。
-            # 在生产环境中，可能需要使用 async_session 或者手动创建 scope。
-            try:
-                LearningService.save_message(db, conversation_id, "assistant", full_response_content)
-            except Exception as db_e:
-                print(f"Failed to save AI response: {db_e}")
+            # 使用独立的 db_stream 会话，确保在正确的上下文中保存
+            LearningService.save_message(db_stream, conversation_id, "assistant", full_response_content)
+            db_stream.commit()
 
         except Exception as e:
             yield f"\n\n❌ AI 服务调用失败: {str(e)}"
+        finally:
+            db_stream.close()
     
     response = StreamingResponse(generate_stream(), media_type="text/plain")
     # 在响应头中返回 conversation_id，这样前端下次可以带上它

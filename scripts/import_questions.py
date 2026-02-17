@@ -79,11 +79,20 @@ def import_questions_from_json(
             continue
 
         # 检查是否已存在（主要通过content判断，因为correct_answer可能会变格式）
-        # 使用 content 的前100个字符进行模糊匹配查询，然后在内存中精确比对
+        # 使用 content 的前50个字符进行模糊匹配查询，然后在内存中精确比对
         # 这样可以避免因 correct_answer 或 explanation 变更导致的重复插入
+        
+        # 转义 SQL LIKE 通配符，防止意外匹配
+        def escape_like_pattern(text: str) -> str:
+            """转义 SQL LIKE 通配符 % 和 _"""
+            return text.replace('%', r'\%').replace('_', r'\_')
+        
+        content_prefix = q_data['content'][:50]
+        escaped_prefix = escape_like_pattern(content_prefix)
+        
         potential_matches = db.query(Question).filter(
             Question.course_id == course.id,
-            Question.content.like(f"{q_data['content'][:50]}%") # 匹配前50个字符
+            Question.content.like(f"{escaped_prefix}%", escape='\\')  # 使用 escape 参数
         ).all()
         
         existing = None

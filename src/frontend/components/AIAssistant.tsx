@@ -41,7 +41,15 @@ interface AIAssistantProps {
     "正在构建回答逻辑..."
   ];
 
-  // 思考状态轮播
+  useEffect(() => {
+    return () => {
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+    };
+  }, []);
+
   useEffect(() => {
     let interval: any;
     if (isLoading && !isStreaming) {
@@ -103,7 +111,14 @@ interface AIAssistantProps {
       const reader = stream.getReader();
       const decoder = new TextDecoder();
 
-      // 启动打字机定时器
+      if (typingIntervalRef.current) {
+        clearInterval(typingIntervalRef.current);
+        typingIntervalRef.current = null;
+      }
+      
+      targetContentRef.current = '';
+      currentDisplayedContentRef.current = '';
+
       typingIntervalRef.current = setInterval(() => {
         if (currentDisplayedContentRef.current.length < targetContentRef.current.length) {
           const nextChar = targetContentRef.current[currentDisplayedContentRef.current.length];
