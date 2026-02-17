@@ -23,13 +23,12 @@ if ENV_PATH.exists():
 else:
     print(f"Warning: .env file not found at {ENV_PATH}")
 
-# 配置 OpenAI 客户端
-API_KEY = os.getenv("DEEPSEEK_API_KEY")
-BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+API_KEY = os.getenv("LLM_API_KEY")
+BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+MODEL = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
 if not API_KEY:
-    print("Error: DEEPSEEK_API_KEY environment variable not set.")
+    print("Error: LLM_API_KEY environment variable not set.")
     sys.exit(1)
 
 client = AsyncOpenAI(api_key=API_KEY, base_url=BASE_URL)

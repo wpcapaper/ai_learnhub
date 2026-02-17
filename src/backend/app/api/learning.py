@@ -279,14 +279,13 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         # 直接把 history 喂给 AI 即可。
         messages_payload.append({"role": msg["role"], "content": msg["content"]})
 
-    # 配置 DeepSeek 客户端
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v3-250324")
+    api_key = os.getenv("LLM_API_KEY")
+    base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
+    model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
 
     if not api_key:
         async def missing_key_stream():
-            yield "⚠️ 系统未配置 DeepSeek API Key。\n请在后端环境变量中设置 `DEEPSEEK_API_KEY`。"
+            yield "⚠️ 系统未配置 LLM API Key。\n请在后端环境变量中设置 `LLM_API_KEY`。"
         return StreamingResponse(missing_key_stream(), media_type="text/plain")
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)

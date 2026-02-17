@@ -24,7 +24,9 @@ interface AIAssistantProps {
   const [thinkingText, setThinkingText] = useState('');
   const [showFollowUp, setShowFollowUp] = useState(false);
   
-  // 用于平滑打字机效果的 Ref
+  const messageIdCounter = useRef(0);
+  const generateMessageId = () => `msg_${Date.now()}_${++messageIdCounter.current}`;
+  
   const targetContentRef = useRef('');
   const currentDisplayedContentRef = useRef('');
   const typingIntervalRef = useRef<any>(null);
@@ -75,7 +77,7 @@ interface AIAssistantProps {
     if (!input.trim() || isLoading || !userId) return;
 
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: generateMessageId(),
       role: 'user',
       content: input,
       timestamp: Date.now(),
@@ -87,12 +89,10 @@ interface AIAssistantProps {
     setShowFollowUp(false);
     setSuggestedQuestions([]);
     
-    // 初始化打字机状态
     targetContentRef.current = '';
     currentDisplayedContentRef.current = '';
     
-    // 创建占位消息
-    const assistantMessageId = Date.now().toString();
+    const assistantMessageId = generateMessageId();
     setMessages(prev => [
       ...prev,
       {
@@ -194,13 +194,12 @@ interface AIAssistantProps {
       if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
       
       setMessages(prev => {
-         // 如果已经有部分内容，保留它并追加错误提示
          const lastMsg = prev[prev.length - 1];
          if (lastMsg.role === 'assistant') {
              return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + '\n\n(连接中断，请重试)' }];
          }
          return [...prev, {
-            id: Date.now().toString(),
+            id: generateMessageId(),
             role: 'assistant',
             content: '抱歉，AI 助手暂时不可用。请稍后再试。',
             timestamp: Date.now(),

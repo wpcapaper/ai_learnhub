@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiClient, Question, User, Course } from '@/lib/api';
+import { normalizeOptions, isCorrectAnswer } from '@/lib/questionUtils';
 import Link from 'next/link';
 import LaTeXRenderer from '@/components/LaTeXRenderer';
 
@@ -280,21 +281,8 @@ function MistakesPageContent() {
 
                   {mistake.options && (
                     <div className="space-y-2 mt-4">
-                      {(Array.isArray(mistake.options) ? 
-                        mistake.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
-                        Object.entries(mistake.options).map(([key, value]) => {
-                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
-                          return [key, value as string] as [string, string];
-                        })
-                      ).map(([key, value]) => {
-                        const isCorrect = mistake.correct_answer != null && (
-                          // 1. Exact Key Match (Priority 1)
-                          mistake.correct_answer.trim().toUpperCase() === key ||
-                          // 2. Comma separated keys for multiple choice (e.g. "A,B")
-                          (mistake.correct_answer.includes(',') && mistake.correct_answer.split(/[,，\s]+/).map(k => k.trim().toUpperCase()).includes(key)) ||
-                          // 3. Exact Value Match (Legacy data)
-                          mistake.correct_answer === value
-                        );
+                      {normalizeOptions(mistake.options).map(([key, value]) => {
+                        const isCorrect = isCorrectAnswer(mistake.correct_answer, key, value);
                         
                         return (
                         <div

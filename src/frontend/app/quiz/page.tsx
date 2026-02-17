@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { apiClient, Question, Course } from '@/lib/api';
+import { normalizeOptions, isCorrectAnswer, isUserAnswer, getOptionStyleClasses } from '@/lib/questionUtils';
 import LaTeXRenderer from '@/components/LaTeXRenderer';
 import Link from 'next/link';
 
@@ -212,11 +213,13 @@ function QuizContent() {
 
     setCheckingNewBatch(true);
     try {
-      // 关键业务逻辑：尝试获取下一批题目，如果返回题目数 > 0，说明还有未刷过的题
-      // 关键业务逻辑：allow_new_round=false 表示只检查当前轮次未刷过的题，不开启新轮
-      console.log('Checking new batch availability...', { userId, courseId });
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Checking new batch availability...', { userId, courseId });
+      }
       const nextQuestions = await apiClient.getNextQuestions(userId, courseId, 1, false);
-      console.log('Next questions check result:', nextQuestions);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Next questions check result:', nextQuestions);
+      }
       setCanStartNewBatch(nextQuestions.length > 0);
     } catch (error) {
       console.error('Failed to check new batch availability:', error);
@@ -336,52 +339,19 @@ function QuizContent() {
                   )}
                   {q.options && (
                     <div className="space-y-2 ml-4">
-                      {(Array.isArray(q.options) ? 
-                        q.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
-                        Object.entries(q.options).map(([key, value]) => {
-                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
-                          return [key, value as string] as [string, string];
-                        })
-                      ).map(([key, value]) => {
-                        const userAnswer = q.user_answer;
-                        const correctAnswer = q.correct_answer;
-                        const isUserAnswer = userAnswer != null && userAnswer.includes(key);
-                        // 增强匹配逻辑：支持Key匹配(A)、去空格Key匹配( A )、值匹配(Option Content)
-                        const isCorrectAnswer = correctAnswer != null && (
-                          // 1. Exact Key Match (Priority 1)
-                          correctAnswer.trim().toUpperCase() === key ||
-                          // 2. Comma separated keys for multiple choice (e.g. "A,B")
-                          (correctAnswer.includes(',') && correctAnswer.split(/[,，\s]+/).map(k => k.trim().toUpperCase()).includes(key)) ||
-                          // 3. Exact Value Match (Legacy data)
-                          correctAnswer === value
-                        );
-                        
-                        let borderClass = 'border-gray-200';
-                        let bgClass = '';
-                        
-                        if (completed) {
-                          if (isCorrectAnswer) {
-                            borderClass = 'border-green-500';
-                            bgClass = 'bg-green-50';
-                          } else if (isUserAnswer) {
-                            borderClass = 'border-red-500';
-                            bgClass = 'bg-red-50';
-                          }
-                        } else {
-                          if (isUserAnswer) {
-                            borderClass = 'border-blue-500';
-                            bgClass = 'bg-blue-50';
-                          }
-                        }
+                      {normalizeOptions(q.options).map(([key, value]) => {
+                        const _isUserAnswer = isUserAnswer(q.user_answer, key);
+                        const _isCorrectAnswer = isCorrectAnswer(q.correct_answer, key, value);
+                        const { borderClass, bgClass } = getOptionStyleClasses(completed, _isCorrectAnswer, _isUserAnswer);
 
                         return (
                           <div key={key} className={`p-3 border rounded ${borderClass} ${bgClass}`}>
                             <strong className="text-black">{key}.</strong>{' '}
                             <span className="text-black"><LaTeXRenderer content={value} /></span>
-                            {completed && isCorrectAnswer && (
+                            {completed && _isCorrectAnswer && (
                               <span className="ml-2 text-green-700 font-bold">✓ 正确</span>
                             )}
-                            {completed && isUserAnswer && !isCorrectAnswer && (
+                            {completed && _isUserAnswer && !_isCorrectAnswer && (
                               <span className="ml-2 text-red-700 font-bold">✗ 错误</span>
                             )}
                           </div>
@@ -474,13 +444,7 @@ function QuizContent() {
                 {currentQuestion.options && (
                   <div className="space-y-3">
                     {currentQuestion.question_type === 'multiple_choice' ? (
-                      (Array.isArray(currentQuestion.options) ? 
-                        currentQuestion.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
-                        Object.entries(currentQuestion.options).map(([key, value]) => {
-                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
-                          return [key, value as string] as [string, string];
-                        })
-                      ).map(([key, value]) => {
+                      normalizeOptions(currentQuestion.options).map(([key, value]) => {
                         const isSelected = selectedOptions.has(key);
                         const userAnswer = currentQuestion.user_answer;
                         const isAlreadyAnswered = userAnswer != null;
@@ -506,13 +470,7 @@ function QuizContent() {
                         );
                       })
                     ) : (
-                      (Array.isArray(currentQuestion.options) ? 
-                        currentQuestion.options.map((value, index) => [String.fromCharCode(65 + index), value]) : 
-                        Object.entries(currentQuestion.options).map(([key, value]) => {
-                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
-                          return [key, value as string] as [string, string];
-                        })
-                      ).map(([key, value]) => (
+                      normalizeOptions(currentQuestion.options).map(([key, value]) => (
                         <button
                           key={key}
                           onClick={() => submitAnswer(currentQuestion.id, key)}

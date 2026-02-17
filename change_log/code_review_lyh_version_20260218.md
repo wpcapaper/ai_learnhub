@@ -324,3 +324,70 @@ python-dotenv>=1.0.0
 - 新增 `useEffect` 清理函数，在组件卸载时清理定时器
 - 在设置新定时器前，先清理旧的定时器
 - 初始化 `targetContentRef` 和 `currentDisplayedContentRef`
+
+---
+
+## 改进修复 (后续优化)
+
+### 4. 硬编码课程列表 (batch_import_questions.py)
+
+**处理方式**: 增强注释引导用户修改
+- 在文件头部添加使用说明
+- 用醒目的分隔线和注释标注 `KNOWN_COURSES` 列表位置
+- 提供添加新课程的示例
+
+### 5. 重复的选项渲染逻辑 (前端)
+
+**修复方案**:
+- 创建 `src/frontend/lib/questionUtils.ts` 工具文件
+- 提取 `normalizeOptions()`、`isCorrectAnswer()`、`isUserAnswer()`、`getOptionStyleClasses()` 函数
+- 重构 `quiz/page.tsx` 和 `mistakes/page.tsx` 使用共用函数
+- 减少代码重复约 50 行
+
+### 6. API 参数变更
+
+**处理方式**: 保持现状
+- 旧协议本身不合理，激进修改是正确的
+
+### 7. console.log 残留 (quiz/page.tsx)
+
+**修复方案**: 使用环境变量控制
+```tsx
+if (process.env.NODE_ENV === 'development') {
+  console.log('Checking new batch...', { userId, courseId });
+}
+```
+- 开发环境保留调试日志
+- 生产环境自动移除
+
+### 8. 脚本错误处理
+
+**处理方式**: 保持现状
+- 脚本工具用户直接运行，失败信息已足够感知
+
+---
+
+## 环境变量重构
+
+### 原问题
+- 环境变量使用 `DEEPSEEK_` 前缀，不具有泛用性
+
+### 修复方案
+将所有 `DEEPSEEK_` 前缀改为通用的 `LLM_` 前缀：
+
+| 旧变量名 | 新变量名 | 说明 |
+|----------|----------|------|
+| `DEEPSEEK_API_KEY` | `LLM_API_KEY` | API 密钥 |
+| `DEEPSEEK_BASE_URL` | `LLM_BASE_URL` | API 基础地址 |
+| `DEEPSEEK_MODEL` | `LLM_MODEL` | 模型名称 |
+
+### 修改文件
+- `src/backend/.env` - 环境变量文件
+- `src/backend/app/api/learning.py` - AI 助手接口
+- `scripts/generate_course_from_url.py` - 课程生成脚本
+- `scripts/generate_questions_from_course.py` - 题目生成脚本
+- `Agent_Modify_Readme.md` - 文档更新
+
+### 默认值调整
+- `LLM_BASE_URL` 默认值: `https://api.openai.com/v1`
+- `LLM_MODEL` 默认值: `gpt-3.5-turbo`

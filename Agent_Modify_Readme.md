@@ -226,15 +226,16 @@ async def generate_stream():
 在 `src/backend/.env` 中配置 API 密钥：
 
 ```env
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# DeepSeek
-DEEPSEEK_API_KEY=sk-...
-
-# 其他 AI 服务
-...
+LLM_API_KEY=your-api-key-here
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-3.5-turbo
 ```
+
+支持的 LLM 服务：
+- OpenAI: `LLM_BASE_URL=https://api.openai.com/v1`
+- DeepSeek: `LLM_BASE_URL=https://api.deepseek.com`
+- 火山引擎: `LLM_BASE_URL=https://ark.cn-beijing.volces.com/api/v3`
+- 其他 OpenAI 兼容服务
 
 ### 3.3 安装依赖
 
