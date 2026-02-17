@@ -34,7 +34,7 @@ class QuestionInBatchResponse(BaseModel):
     id: str
     content: str
     question_type: str
-    options: dict | None
+    options: dict | list | None
     correct_answer: str | None
     explanation: str | None
     user_answer: str | None

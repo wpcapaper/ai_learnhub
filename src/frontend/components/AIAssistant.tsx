@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { apiClient } from '@/lib/api';
+import MarkdownReader from './MarkdownReader';
 
 interface Message {
   id: string;
@@ -20,9 +21,39 @@ interface AIAssistantProps {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [thinkingText, setThinkingText] = useState('');
+  const [showFollowUp, setShowFollowUp] = useState(false);
+  
+  // 用于平滑打字机效果的 Ref
+  const targetContentRef = useRef('');
+  const currentDisplayedContentRef = useRef('');
+  const typingIntervalRef = useRef<any>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const userName = '我';
+  const [suggestedQuestions, setSuggestedQuestions] = useState<string[]>([]);
+
+  const THINKING_MESSAGES = [
+    "AI 正在阅读课程内容...",
+    "正在组织语言...",
+    "正在检索相关知识点...",
+    "正在构建回答逻辑..."
+  ];
+
+  // 思考状态轮播
+  useEffect(() => {
+    let interval: any;
+    if (isLoading && !isStreaming) {
+      let i = 0;
+      setThinkingText(THINKING_MESSAGES[0]);
+      interval = setInterval(() => {
+        i = (i + 1) % THINKING_MESSAGES.length;
+        setThinkingText(THINKING_MESSAGES[i]);
+      }, 2000);
+    }
+    return () => clearInterval(interval);
+  }, [isLoading, isStreaming]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -45,16 +76,53 @@ interface AIAssistantProps {
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setIsLoading(true);
-    setIsStreaming(true);
+    setShowFollowUp(false);
+    setSuggestedQuestions([]);
+    
+    // 初始化打字机状态
+    targetContentRef.current = '';
+    currentDisplayedContentRef.current = '';
+    
+    // 创建占位消息
+    const assistantMessageId = Date.now().toString();
+    setMessages(prev => [
+      ...prev,
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      }
+    ]);
 
     try {
       // 调用 AI 对话接口（流式响应）
       const stream = await apiClient.aiChatStream(chapterId, input, userId);
+      setIsStreaming(true); // 开始流式传输（思考结束）
+      
       const reader = stream.getReader();
       const decoder = new TextDecoder();
 
-      let assistantMessage = '';
-      const assistantMessageId = Date.now().toString();
+      // 启动打字机定时器
+      typingIntervalRef.current = setInterval(() => {
+        if (currentDisplayedContentRef.current.length < targetContentRef.current.length) {
+          const nextChar = targetContentRef.current[currentDisplayedContentRef.current.length];
+          currentDisplayedContentRef.current += nextChar;
+          
+          setMessages(prev => {
+            const lastMessage = prev[prev.length - 1];
+            if (lastMessage && lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
+              return [
+                ...prev.slice(0, -1),
+                { ...lastMessage, content: currentDisplayedContentRef.current }
+              ];
+            }
+            return prev;
+          });
+        }
+      }, 20); // 每 20ms 输出一个字符
+
+      let fullContent = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -63,42 +131,66 @@ interface AIAssistantProps {
           break;
         }
 
-        assistantMessage += decoder.decode(value as unknown as Uint8Array, { stream: true });
+        const chunk = decoder.decode(value as unknown as Uint8Array, { stream: true });
+        fullContent += chunk;
 
-        // 更新 AI 助手消息
-        setMessages(prev => {
-          const lastMessage = prev[prev.length - 1];
-          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.id === assistantMessageId) {
-            // 更新现有消息
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMessage, content: assistantMessage }
-            ];
-          } else {
-            // 添加新消息
-            return [
-              ...prev,
-              {
-                id: assistantMessageId,
-                role: 'assistant',
-                content: assistantMessage,
-                timestamp: Date.now(),
-              }
-            ];
+        // 检测分隔符，如果存在则只显示分隔符之前的内容
+        const separatorIndex = fullContent.indexOf('<<SUGGESTED_QUESTIONS>>');
+        if (separatorIndex !== -1) {
+          targetContentRef.current = fullContent.substring(0, separatorIndex);
+        } else {
+          targetContentRef.current = fullContent;
+        }
+      }
+      
+      // 解析后续问题
+      const separatorIndex = fullContent.indexOf('<<SUGGESTED_QUESTIONS>>');
+      if (separatorIndex !== -1) {
+        try {
+          // 截取分隔符之后的内容
+          const rawStr = fullContent.substring(separatorIndex + '<<SUGGESTED_QUESTIONS>>'.length);
+          
+          // 使用正则查找 JSON 数组
+          const jsonMatch = rawStr.match(/\[[\s\S]*?\]/);
+          
+          if (jsonMatch) {
+            const questions = JSON.parse(jsonMatch[0]);
+            if (Array.isArray(questions)) {
+              setSuggestedQuestions(questions);
+            }
           }
-        });
+        } catch (e) {
+          console.error('Failed to parse suggested questions:', e);
+        }
+      }
+
+      // 等待打字机效果完成
+      while (currentDisplayedContentRef.current.length < targetContentRef.current.length) {
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
 
       setIsLoading(false);
       setIsStreaming(false);
+      setShowFollowUp(true);
+      if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
+      
     } catch (error) {
       console.error('AI Chat Error:', error);
-      setMessages(prev => [...prev, {
-        id: Date.now().toString(),
-        role: 'assistant',
-        content: '抱歉，AI 助手暂时不可用。请稍后再试。',
-        timestamp: Date.now(),
-      }]);
+      if (typingIntervalRef.current) clearInterval(typingIntervalRef.current);
+      
+      setMessages(prev => {
+         // 如果已经有部分内容，保留它并追加错误提示
+         const lastMsg = prev[prev.length - 1];
+         if (lastMsg.role === 'assistant') {
+             return [...prev.slice(0, -1), { ...lastMsg, content: lastMsg.content + '\n\n(连接中断，请重试)' }];
+         }
+         return [...prev, {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: '抱歉，AI 助手暂时不可用。请稍后再试。',
+            timestamp: Date.now(),
+         }];
+      });
       setIsLoading(false);
       setIsStreaming(false);
     }
@@ -110,6 +202,14 @@ interface AIAssistantProps {
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  // 处理消息内容，支持 <think> 标签的展示
+  const processMessageContent = (content: string) => {
+    // 替换 <think> 标签为 Markdown 引用块
+    return content.replace(/<think>([\s\S]*?)<\/think>/g, (match, thinkContent) => {
+      return `> **深度思考**\n>\n> ${thinkContent.trim().split('\n').join('\n> ')}\n\n`;
+    });
   };
 
   return (
@@ -130,7 +230,7 @@ interface AIAssistantProps {
           </div>
         ) : (
           <div className="space-y-4">
-            {messages.map((message) => (
+            {messages.map((message, index) => (
               <div
                 key={message.id}
                 className={`flex flex-col ${
@@ -144,18 +244,55 @@ interface AIAssistantProps {
 
                 {/* 消息气泡 */}
                 <div
-                  className={`max-w-[80%] shadow-lg px-5 py-3 ${
+                  className={`max-w-[90%] shadow-lg px-5 py-3 ${
                     message.role === 'user'
                       ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-2xl'
-                      : 'bg-slate-100 text-slate-800 rounded-bl-2xl'
+                      : 'bg-white border border-slate-100 text-slate-800 rounded-bl-2xl w-full'
                   }`}
                 >
-                  <div className="text-sm whitespace-pre-wrap leading-relaxed">
-                    {message.content}
+                  <div className={`text-sm leading-relaxed ${message.role === 'user' ? 'whitespace-pre-wrap' : ''}`}>
+                    {message.role === 'user' ? (
+                      message.content
+                    ) : (
+                      <MarkdownReader content={processMessageContent(message.content)} variant="chat" />
+                    )}
                   </div>
+                  
+                  {/* 后续问题推荐 (仅在最后一条 AI 消息后显示) */}
+                  {message.role === 'assistant' && 
+                   index === messages.length - 1 && 
+                   showFollowUp && (
+                    <div className="mt-4 flex flex-wrap gap-2 animate-fade-in">
+                      {suggestedQuestions.map((q, i) => (
+                        <button
+                          key={i}
+                          onClick={() => { setInput(q); handleSendMessage(); }}
+                          className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs rounded-full border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 transition-colors"
+                        >
+                          {q}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
+            
+            {/* 思考状态展示 */}
+            {isLoading && !isStreaming && (
+               <div className="flex flex-col items-start">
+                  <div className="text-xs text-slate-500 mb-2">AI 助手</div>
+                  <div className="bg-slate-50 border border-slate-100 text-slate-500 rounded-bl-2xl rounded-tr-2xl rounded-tl-2xl px-5 py-3 shadow-sm">
+                    <div className="flex items-center space-x-2">
+                       <svg className="animate-spin h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8 8 018 16z"></path>
+                       </svg>
+                       <span className="text-sm animate-pulse">{thinkingText}</span>
+                    </div>
+                  </div>
+               </div>
+            )}
           </div>
         )}
       </div>

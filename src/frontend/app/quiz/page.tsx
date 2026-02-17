@@ -213,11 +213,10 @@ function QuizContent() {
     setCheckingNewBatch(true);
     try {
       // 关键业务逻辑：尝试获取下一批题目，如果返回题目数 > 0，说明还有未刷过的题
-      // 注意：这里使用 course_type，需要从 course 对象中获取
       // 关键业务逻辑：allow_new_round=false 表示只检查当前轮次未刷过的题，不开启新轮
-      const courseType = course?.course_type || 'exam';
-      const nextQuestions = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/review/next?user_id=${userId}&course_type=${courseType}&batch_size=1&allow_new_round=false`)
-        .then(res => res.json());
+      console.log('Checking new batch availability...', { userId, courseId });
+      const nextQuestions = await apiClient.getNextQuestions(userId, courseId, 1, false);
+      console.log('Next questions check result:', nextQuestions);
       setCanStartNewBatch(nextQuestions.length > 0);
     } catch (error) {
       console.error('Failed to check new batch availability:', error);
@@ -337,20 +336,53 @@ function QuizContent() {
                   )}
                   {q.options && (
                     <div className="space-y-2 ml-4">
-                      {Object.entries(q.options).map(([key, value]) => {
+                      {(Array.isArray(q.options) ? 
+                        q.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
+                        Object.entries(q.options).map(([key, value]) => {
+                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
+                          return [key, value as string] as [string, string];
+                        })
+                      ).map(([key, value]) => {
                         const userAnswer = q.user_answer;
                         const correctAnswer = q.correct_answer;
                         const isUserAnswer = userAnswer != null && userAnswer.includes(key);
-                        const isCorrectAnswer = correctAnswer != null && correctAnswer.includes(key);
+                        // 增强匹配逻辑：支持Key匹配(A)、去空格Key匹配( A )、值匹配(Option Content)
+                        const isCorrectAnswer = correctAnswer != null && (
+                          // 1. Exact Key Match (Priority 1)
+                          correctAnswer.trim().toUpperCase() === key ||
+                          // 2. Comma separated keys for multiple choice (e.g. "A,B")
+                          (correctAnswer.includes(',') && correctAnswer.split(/[,，\s]+/).map(k => k.trim().toUpperCase()).includes(key)) ||
+                          // 3. Exact Value Match (Legacy data)
+                          correctAnswer === value
+                        );
+                        
+                        let borderClass = 'border-gray-200';
+                        let bgClass = '';
+                        
+                        if (completed) {
+                          if (isCorrectAnswer) {
+                            borderClass = 'border-green-500';
+                            bgClass = 'bg-green-50';
+                          } else if (isUserAnswer) {
+                            borderClass = 'border-red-500';
+                            bgClass = 'bg-red-50';
+                          }
+                        } else {
+                          if (isUserAnswer) {
+                            borderClass = 'border-blue-500';
+                            bgClass = 'bg-blue-50';
+                          }
+                        }
+
                         return (
-                          <div key={key} className={`p-3 border rounded ${isUserAnswer ? 'border-blue-500 bg-blue-50' : 'border-gray-200'}`}>
+                          <div key={key} className={`p-3 border rounded ${borderClass} ${bgClass}`}>
                             <strong className="text-black">{key}.</strong>{' '}
                             <span className="text-black"><LaTeXRenderer content={value} /></span>
                             {completed && isCorrectAnswer && (
-                              <span className="ml-2 text-black font-bold">✓ 正确</span>
+                              <span className="ml-2 text-green-700 font-bold">✓ 正确</span>
                             )}
                             {completed && isUserAnswer && !isCorrectAnswer && (
-                              <span className="ml-2 text-black font-bold">✗ 错误</span>
+                              <span className="ml-2 text-red-700 font-bold">✗ 错误</span>
                             )}
                           </div>
                         );
@@ -442,7 +474,13 @@ function QuizContent() {
                 {currentQuestion.options && (
                   <div className="space-y-3">
                     {currentQuestion.question_type === 'multiple_choice' ? (
-                      Object.entries(currentQuestion.options).map(([key, value]) => {
+                      (Array.isArray(currentQuestion.options) ? 
+                        currentQuestion.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
+                        Object.entries(currentQuestion.options).map(([key, value]) => {
+                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
+                          return [key, value as string] as [string, string];
+                        })
+                      ).map(([key, value]) => {
                         const isSelected = selectedOptions.has(key);
                         const userAnswer = currentQuestion.user_answer;
                         const isAlreadyAnswered = userAnswer != null;
@@ -468,7 +506,13 @@ function QuizContent() {
                         );
                       })
                     ) : (
-                      Object.entries(currentQuestion.options).map(([key, value]) => (
+                      (Array.isArray(currentQuestion.options) ? 
+                        currentQuestion.options.map((value, index) => [String.fromCharCode(65 + index), value]) : 
+                        Object.entries(currentQuestion.options).map(([key, value]) => {
+                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
+                          return [key, value as string] as [string, string];
+                        })
+                      ).map(([key, value]) => (
                         <button
                           key={key}
                           onClick={() => submitAnswer(currentQuestion.id, key)}

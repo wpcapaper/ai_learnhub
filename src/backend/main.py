@@ -1,6 +1,12 @@
 """
 FastAPI应用入口
 """
+from dotenv import load_dotenv
+import os
+
+# 加载环境变量 (必须在导入其他模块之前)
+load_dotenv()
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import users, review, quiz, exam, courses, question_sets, mistakes, learning

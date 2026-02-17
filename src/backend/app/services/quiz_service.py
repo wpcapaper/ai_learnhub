@@ -133,6 +133,67 @@ class QuizService:
         return answer_record
 
     @staticmethod
+    def is_answer_correct(user_answer: str, correct_answer: str, options: any = None) -> bool:
+        """
+        判断答案是否正确（增强版）
+        支持：
+        1. 大小写/空格归一化
+        2. 多选题集合匹配（无序）
+        3. 旧数据值匹配（选项内容匹配）
+        """
+        if user_answer is None or correct_answer is None:
+            return False
+
+        # 1. 基础归一化
+        u_ans = str(user_answer).strip().upper()
+        c_ans = str(correct_answer).strip().upper()
+
+        if u_ans == c_ans:
+            return True
+
+        # 2. 集合匹配（多选，分隔符支持中英文逗号）
+        u_set = set(x.strip() for x in u_ans.replace('，', ',').split(',') if x.strip())
+        c_set = set(x.strip() for x in c_ans.replace('，', ',').split(',') if x.strip())
+
+        if u_set == c_set:
+            return True
+
+        # 3. 值匹配（兼容旧数据：正确答案存的是选项内容而非Key）
+        if options:
+            # 统一转为 Dict {Key: Value}
+            opts_map = {}
+            if isinstance(options, dict):
+                opts_map = {str(k).strip().upper(): str(v).strip() for k, v in options.items()}
+            elif isinstance(options, list):
+                # A, B, C...
+                for i, v in enumerate(options):
+                    key = chr(65 + i)  # A, B...
+                    opts_map[key] = str(v).strip()
+
+            # 场景：用户选了 Key (A)，但正确答案是 Value (Paris)
+            # 将用户选项Key映射为Value进行比对
+            # 注意：仅当正确答案不是Key格式（如A,B）时才尝试此逻辑，避免误判
+            
+            # 尝试将用户的所有Key转为Value
+            u_values = set()
+            all_mapped = True
+            for k in u_set:
+                if k in opts_map:
+                    u_values.add(opts_map[k].upper())
+                else:
+                    all_mapped = False
+                    break
+            
+            if all_mapped and u_values:
+                # 检查转换后的Value集合是否与正确答案（作为Value）匹配
+                # 正确答案可能是单个Value，也可能是多个Value（逗号分隔）
+                c_values = set(x.strip().upper() for x in c_ans.replace('，', ',').split(',') if x.strip())
+                if u_values == c_values:
+                    return True
+
+        return False
+
+    @staticmethod
     def finish_batch(
         db: Session,
         user_id: str,
@@ -203,7 +264,12 @@ class QuizService:
         for answer in answers:
             question = questions.get(answer.question_id)
             if question and answer.user_answer:
-                answer.is_correct = (answer.user_answer == question.correct_answer)
+                # 使用增强的判题逻辑
+                answer.is_correct = QuizService.is_answer_correct(
+                    answer.user_answer,
+                    question.correct_answer,
+                    question.options
+                )
 
                 if answer.is_correct:
                     correct += 1

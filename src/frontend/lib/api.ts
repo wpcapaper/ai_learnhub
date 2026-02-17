@@ -93,7 +93,7 @@ export interface Question {
   id: string;
   content: string;
   question_type: string;
-  options?: Record<string, string> | null;
+  options?: Record<string, string> | string[] | null;
   correct_answer?: string | null;
   answer?: string | null;
   explanation?: string | null;
@@ -198,8 +198,8 @@ class ApiClient {
   }
 
   // Review APIs
-  async getNextQuestions(userId: string, courseType = 'exam', batchSize = 10): Promise<Question[]> {
-    return this.fetchJson<Question[]>(`/api/review/next?user_id=${userId}&course_type=${courseType}&batch_size=${batchSize}`);
+  async getNextQuestions(userId: string, courseId: string, batchSize = 10, allowNewRound = true): Promise<Question[]> {
+    return this.fetchJson<Question[]>(`/api/review/next?user_id=${userId}&course_id=${courseId}&batch_size=${batchSize}&allow_new_round=${allowNewRound}`);
   }
 
   async submitAnswer(userId: string, submission: AnswerSubmission): Promise<{ record_id: string; review_stage: number; next_review_time?: string; message: string }> {

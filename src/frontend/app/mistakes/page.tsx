@@ -280,22 +280,38 @@ function MistakesPageContent() {
 
                   {mistake.options && (
                     <div className="space-y-2 mt-4">
-                      {Object.entries(mistake.options).map(([key, value]) => (
+                      {(Array.isArray(mistake.options) ? 
+                        mistake.options.map((value: string, index: number) => [String.fromCharCode(65 + index), value] as [string, string]) : 
+                        Object.entries(mistake.options).map(([key, value]) => {
+                          if (/^\d+$/.test(key)) return [String.fromCharCode(65 + parseInt(key)), value as string] as [string, string];
+                          return [key, value as string] as [string, string];
+                        })
+                      ).map(([key, value]) => {
+                        const isCorrect = mistake.correct_answer != null && (
+                          // 1. Exact Key Match (Priority 1)
+                          mistake.correct_answer.trim().toUpperCase() === key ||
+                          // 2. Comma separated keys for multiple choice (e.g. "A,B")
+                          (mistake.correct_answer.includes(',') && mistake.correct_answer.split(/[,，\s]+/).map(k => k.trim().toUpperCase()).includes(key)) ||
+                          // 3. Exact Value Match (Legacy data)
+                          mistake.correct_answer === value
+                        );
+                        
+                        return (
                         <div
                           key={key}
                           className={`flex items-center gap-3 p-2 rounded ${
-                            mistake.correct_answer?.includes(key)
+                            isCorrect
                               ? 'bg-green-50 border border-green-200'
                               : 'bg-gray-50'
                           }`}
                         >
                           <span className="w-10 text-right font-medium text-gray-800">{key}.</span>
                           <strong className="flex-1 text-gray-900"><LaTeXRenderer content={value} /></strong>
-                          {mistake.correct_answer?.includes(key) && (
+                          {isCorrect && (
                             <span className="text-green-600 font-medium text-sm">正确答案</span>
                           )}
                         </div>
-                      ))}
+                      )})}
                     </div>
                   )}
 

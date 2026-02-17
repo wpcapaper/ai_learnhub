@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY pyproject.toml .
-RUN pip install fastapi uvicorn[standard] sqlalchemy pydantic python-multipart psycopg2-binary
+RUN pip install fastapi uvicorn[standard] sqlalchemy pydantic python-multipart psycopg2-binary openai python-dotenv
 
 COPY . .
 

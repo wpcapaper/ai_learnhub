@@ -11,6 +11,7 @@ from .batch import QuizBatch, BatchAnswer
 from .course import Course
 from .question_set import QuestionSet
 from .user_settings import UserSettings
+from .conversation import Conversation, Message
 from .user_course_progress import UserCourseProgress
 from .answer_history import UserAnswerHistory
 from .chapter import Chapter
@@ -30,6 +31,8 @@ __all__ = [
     "UserAnswerHistory",
     "Chapter",
     "ReadingProgress",
+    "Conversation",
+    "Message",
 ]
 
 

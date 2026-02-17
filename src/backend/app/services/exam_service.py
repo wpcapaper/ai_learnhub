@@ -259,7 +259,12 @@ class ExamService:
         for answer in answers:
             question = questions.get(answer.question_id)
             if question and answer.user_answer:
-                answer.is_correct = (answer.user_answer == question.correct_answer)
+                # 使用 QuizService 的增强判题逻辑
+                answer.is_correct = QuizService.is_answer_correct(
+                    answer.user_answer,
+                    question.correct_answer,
+                    question.options
+                )
 
                 if answer.is_correct:
                     correct += 1

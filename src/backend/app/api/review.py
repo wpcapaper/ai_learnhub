@@ -28,7 +28,7 @@ class QuestionWithRecord(BaseModel):
     id: str
     content: str
     question_type: str
-    options: dict | None
+    options: dict | list | None
     correct_answer: str
     explanation: str | None
 
@@ -48,6 +48,7 @@ async def get_next_review_questions(
     user_id: str,
     course_id: Optional[str] = None,
     batch_size: int = 10,
+    allow_new_round: bool = True,
     db: Session = Depends(get_db)
 ):
     """
@@ -55,7 +56,7 @@ async def get_next_review_questions(
 
     按艾宾浩斯记忆曲线优先级返回题目
     """
-    questions = ReviewService.get_next_question(db, user_id, course_id, batch_size)
+    questions = ReviewService.get_next_question(db, user_id, course_id, batch_size, allow_new_round)
     return questions
 
 

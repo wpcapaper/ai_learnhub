@@ -67,9 +67,7 @@ export default function CoursesPage() {
 
     try {
       // 关键业务逻辑：默认 allow_new_round=false，只检查当前轮次未刷过的题
-      const nextQuestions = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/review/next?user_id=${user.id}&course_type=${course.course_type}&batch_size=1&allow_new_round=false`
-      ).then(res => res.json());
+      const nextQuestions = await apiClient.getNextQuestions(user.id, course.id, 1, false);
 
       // 关键业务逻辑：如果没有未刷过的题，且课程有题目，询问是否开启新轮
       if (nextQuestions.length === 0 && (course.total_questions || 0) > 0) {
@@ -160,6 +158,8 @@ export default function CoursesPage() {
           </p>
         </div>
 
+        {/* 临时调试信息 */}
+
         {error && (
           <div className="mb-6 bg-red-100 text-red-700 p-4 rounded-md">
             {error}
@@ -176,14 +176,14 @@ export default function CoursesPage() {
             {courses.map((course) => (
               <div
                 key={course.id}
-                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden"
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden flex flex-col h-full"
               >
-                <div className="p-6">
+                <div className="p-6 flex flex-col flex-grow">
                   <h2 className="text-xl font-bold text-gray-800 mb-2">
                     {course.title}
                   </h2>
                   {course.description && (
-                    <p className="text-gray-700 mb-4 text-sm">
+                    <p className="text-gray-700 mb-4 text-sm line-clamp-3">
                       {course.description}
                     </p>
                   )}
@@ -202,9 +202,9 @@ export default function CoursesPage() {
                     )}
                   </div>
 
-                  {/* 考试类课程：显示题目和进度信息 */}
-                  {course.course_type === 'exam' && (
-                    <div className="text-sm text-gray-600 mb-4">
+                  {/* 考试类课程 或 有题目的学习类课程：显示题目和进度信息 */}
+                  {(course.course_type === 'exam' || (course.total_questions || 0) > 0) && (
+                    <div className="text-sm text-gray-600 mt-auto">
                       <div className="flex justify-between mb-2">
                         <span>题目总数: <strong>{course.total_questions || 0}</strong></span>
                         <span>已刷题目: <strong>{course.answered_questions || 0}</strong></span>
@@ -248,16 +248,42 @@ export default function CoursesPage() {
                       </>
                     )}
 
-                    {/* 学习类课程：单个"开始学习"按钮 */}
+                    {/* 学习类课程：如果有题目，显示三个按钮；否则只显示开始学习 */}
                     {course.course_type === 'learning' && (
-                      <div className="col-span-3">
-                        <button
-                          onClick={() => (window.location.href = `/chapters?course_id=${course.id}`)}
-                          className="w-full bg-green-50 hover:bg-green-100 text-green-700 font-medium rounded-md py-3 px-4 text-center transition-colors"
-                        >
-                          开始学习
-                        </button>
-                      </div>
+                      <>
+                        {(course.total_questions || 0) > 0 ? (
+                          <>
+                            <button
+                              onClick={() => (window.location.href = `/chapters?course_id=${course.id}`)}
+                              className="bg-green-50 hover:bg-green-100 text-green-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
+                            >
+                              开始学习
+                            </button>
+                            <button
+                              onClick={() => handleStartQuiz(course)}
+                              disabled={checkingQuiz === course.id}
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              {checkingQuiz === course.id ? '检查中...' : '刷题模式'}
+                            </button>
+                            <Link
+                              href={`/mistakes?course_id=${course.id}`}
+                              className="block bg-red-50 hover:bg-red-100 text-red-700 font-medium rounded-md py-3 px-4 text-center transition-colors text-sm"
+                            >
+                              错题本
+                            </Link>
+                          </>
+                        ) : (
+                          <div className="col-span-3">
+                            <button
+                              onClick={() => (window.location.href = `/chapters?course_id=${course.id}`)}
+                              className="w-full bg-green-50 hover:bg-green-100 text-green-700 font-medium rounded-md py-3 px-4 text-center transition-colors"
+                            >
+                              开始学习
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>

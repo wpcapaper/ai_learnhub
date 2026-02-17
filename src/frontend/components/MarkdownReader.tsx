@@ -4,19 +4,20 @@ import { useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { apiClient } from '@/lib/api';
+import LaTeXRenderer from './LaTeXRenderer';
 
 interface MarkdownReaderProps {
   content: string;
   onProgressChange?: (position: number, percentage: number) => void;
+  variant?: 'document' | 'chat';
 }
 
-export default function MarkdownReader({ content, onProgressChange }: MarkdownReaderProps) {
+export default function MarkdownReader({ content, onProgressChange, variant = 'document' }: MarkdownReaderProps) {
   const contentRef = useRef<HTMLDivElement>(null);
 
   // 跟踪滚动位置和阅读进度
   const handleScroll = () => {
-    if (!contentRef.current) return;
+    if (variant === 'chat' || !contentRef.current) return;
 
     const element = contentRef.current;
     const scrollTop = element.scrollTop;
@@ -28,7 +29,7 @@ export default function MarkdownReader({ content, onProgressChange }: MarkdownRe
     }
   };
 
-  if (!content || content.trim() === '') {
+  if ((!content || content.trim() === '') && variant === 'document') {
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50">
         <p className="text-gray-500">没有可显示的内容</p>
@@ -36,12 +37,20 @@ export default function MarkdownReader({ content, onProgressChange }: MarkdownRe
     );
   }
 
+  if ((!content || content.trim() === '') && variant === 'chat') {
+    return null;
+  }
+
+  const containerClasses = variant === 'document' 
+    ? "flex-1 overflow-y-auto px-8 py-6 markdown-content"
+    : "markdown-content";
+
   return (
     <div
       ref={contentRef}
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto px-8 py-6 markdown-content"
-      style={{ scrollBehavior: 'smooth' }}
+      className={containerClasses}
+      style={variant === 'document' ? { scrollBehavior: 'smooth' } : {}}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
@@ -72,12 +81,28 @@ export default function MarkdownReader({ content, onProgressChange }: MarkdownRe
           h1: ({ children }) => <h1 className="text-2xl font-bold mb-6 text-slate-900 border-b-2 border-slate-200 pb-3">{children}</h1>,
           h2: ({ children }) => <h2 className="text-xl font-bold mb-4 mt-8 text-slate-800">{children}</h2>,
           h3: ({ children }) => <h3 className="text-lg font-bold mb-3 mt-6 text-slate-800">{children}</h3>,
-          // 自定义段落样式
-          p: ({ children }) => <p className="mb-4 text-slate-700 leading-relaxed">{children}</p>,
+          // 自定义段落样式 - 集成 LaTeX
+          p: ({ children }) => {
+            return (
+              <p className={`mb-4 text-slate-700 leading-relaxed ${variant === 'chat' ? 'text-sm' : ''}`}>
+                {Array.isArray(children) 
+                  ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
+                  : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
+                }
+              </p>
+            );
+          },
           // 自定义列表样式
           ul: ({ children }) => <ul className="mb-4 ml-6 list-disc text-slate-700">{children}</ul>,
           ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal text-slate-700">{children}</ol>,
-          li: ({ children }) => <li className="mb-2">{children}</li>,
+          li: ({ children }) => (
+            <li className="mb-2">
+              {Array.isArray(children) 
+                  ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
+                  : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
+              }
+            </li>
+          ),
           // 自定义链接样式
           a: ({ href, children }) => <a href={href} className="text-indigo-600 hover:text-indigo-800 underline">{children}</a>,
           // 自定义引用样式

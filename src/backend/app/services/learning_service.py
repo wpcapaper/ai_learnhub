@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List, Optional, Dict
 from sqlalchemy.orm import Session
 
-from app.models import Course, Chapter, ReadingProgress
+from app.models import Course, Chapter, ReadingProgress, Conversation, Message
 
 
 class LearningService:
@@ -287,3 +287,48 @@ class LearningService:
         }
 
         return result
+
+    @staticmethod
+    def create_conversation(db: Session, user_id: Optional[str], chapter_id: str) -> Conversation:
+        """
+        创建一个新的对话会话
+        """
+        conversation = Conversation(
+            user_id=user_id,
+            chapter_id=chapter_id,
+            summary="新对话"
+        )
+        db.add(conversation)
+        db.commit()
+        db.refresh(conversation)
+        return conversation
+
+    @staticmethod
+    def get_conversation_history(db: Session, conversation_id: str, limit: int = 10) -> List[Dict]:
+        """
+        获取对话历史消息
+        """
+        messages = db.query(Message).filter(
+            Message.conversation_id == conversation_id
+        ).order_by(Message.created_at.desc()).limit(limit).all()
+        
+        # 因为是按时间倒序查的（为了取最近 N 条），返回前要反转回来，变成正序
+        return [
+            {"role": msg.role, "content": msg.content} 
+            for msg in reversed(messages)
+        ]
+
+    @staticmethod
+    def save_message(db: Session, conversation_id: str, role: str, content: str) -> Message:
+        """
+        保存一条消息
+        """
+        message = Message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content
+        )
+        db.add(message)
+        db.commit()
+        db.refresh(message)
+        return message

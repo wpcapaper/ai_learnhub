@@ -27,7 +27,8 @@ def import_questions_from_json(
     db: Session,
     course_code: str,
     question_set_code: str = None,
-    question_set_name: str = None
+    question_set_name: str = None,
+    update_existing: bool = False
 ):
     """
     从JSON文件导入题目到指定课程，可选创建固定题集
@@ -77,17 +78,36 @@ def import_questions_from_json(
             skipped += 1
             continue
 
-        # 检查是否已存在（通过content + correct_answer + course_id）
-        existing = db.query(Question).filter(
+        # 检查是否已存在（主要通过content判断，因为correct_answer可能会变格式）
+        # 使用 content 的前100个字符进行模糊匹配查询，然后在内存中精确比对
+        # 这样可以避免因 correct_answer 或 explanation 变更导致的重复插入
+        potential_matches = db.query(Question).filter(
             Question.course_id == course.id,
-            Question.content == q_data['content'],
-            Question.correct_answer == q_data['correct_answer'],
-            Question.explanation == q_data['explanation']
-        ).first()
+            Question.content.like(f"{q_data['content'][:50]}%") # 匹配前50个字符
+        ).all()
+        
+        existing = None
+        for pm in potential_matches:
+            # 精确比对 content (去除首尾空格)
+            if pm.content.strip() == q_data['content'].strip():
+                existing = pm
+                break
 
         if existing:
-            skipped += 1
-            continue
+            if update_existing:
+                existing.options = q_data.get('options')
+                existing.correct_answer = q_data['correct_answer']
+                existing.explanation = q_data.get('explanation')
+                if q_data.get('knowledge_points'):
+                    existing.knowledge_points = q_data.get('knowledge_points')
+                
+                question_ids.append(existing.id)
+                imported += 1
+                print(f"  Updated existing question: {q_data['content'][:20]}...")
+                continue
+            else:
+                skipped += 1
+                continue
 
         # 创建题目对象
         question = Question(

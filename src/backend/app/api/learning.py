@@ -2,11 +2,13 @@
 学习课程API
 """
 import asyncio
+import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
+from openai import AsyncOpenAI
 
 from app.core.database import get_db
 from app.models import Course, Chapter
@@ -28,6 +30,7 @@ class ChatRequest(BaseModel):
     chapter_id: str  # 章节 ID
     message: str  # 用户消息
     user_id: Optional[str] = None  # 用户 ID（可选）
+    conversation_id: Optional[str] = None  # 会话 ID（可选，用于延续对话）
 
 
 @router.get("/{course_id}/chapters")
@@ -207,53 +210,9 @@ def get_user_progress(
 async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
     AI 课程助手对话接口（流式响应）
-
-    [开发说明] 这是一个预埋的 AI 助手接口，目前返回固定格式的响应。
-    本函数作为后续接入真实 AI 模型（如 OpenAI GPT、DeepSeek 等）的基础框架。
-
-    [当前输出格式]
-    当前正在学习的章节ID为:{章节id}
-    当前章节markdown为:{markdown内容，截断前50个字符}
-    阿巴阿巴
-
-    [开发指南]
-    1. 如需接入真实 AI 模型，请参考以下步骤：
-       - 在此函数中调用 AI 模型的 API（如 OpenAI、DeepSeek 等）
-       - 将章节内容（chapter.content_markdown）作为上下文传递给 AI
-       - 将用户的 request.message 作为问题传递给 AI
-       - 处理 AI 的返回结果，保持流式响应格式
-
-    2. 需要考虑的功能增强：
-       - 添加用户对话历史记录（实现多轮对话）
-       - 实现章节内容的语义检索（RAG）
-       - 添加知识库增强（基于课程内容构建向量数据库）
-
-    3. 数据库交互说明：
-       - 通过 db: Session = Depends(get_db) 获取数据库会话
-       - 通过 chapter_id 查询 Chapter 模型获取章节内容
-       - Chapter.content_markdown 字段包含完整的 markdown 格式内容
-
-    Args:
-        request: 对话请求对象
-            - chapter_id (str): 章节 ID，用于获取当前学习的章节内容
-            - message (str): 用户的消息/问题
-            - user_id (Optional[str]): 用户 ID，用于个性化或记录对话历史
-        db: 数据库会话（通过依赖注入自动获取）
-
-    Returns:
-        StreamingResponse: 流式响应对象，模拟 AI 打字效果
-
-    Raises:
-        HTTPException 400: 当请求参数不合法时（章节 ID 或消息内容为空）
-        HTTPException 404: 当指定的章节不存在于数据库时
-
-    Example:
-        >>> request = ChatRequest(
-        ...     chapter_id="550e8400-e29b-41d4-a716-446655440000",
-        ...     message="请解释一下这一章的核心概念"
-        ... )
-        >>> response = await ai_chat(request, db)
+    已接入 DeepSeek-V3 大模型
     """
+    
     # 参数验证
     if not request.chapter_id:
         raise HTTPException(status_code=400, detail="章节 ID 不能为空")
@@ -261,7 +220,6 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
     # 从数据库查询章节信息
-    # 注意：这里需要查询到章节的 markdown 内容，后续可以将此内容传递给 AI 模型
     chapter = db.query(Chapter).filter(
         Chapter.id == request.chapter_id,
         Chapter.is_deleted == False
@@ -270,40 +228,112 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     if not chapter:
         raise HTTPException(status_code=404, detail=f"章节 {request.chapter_id} 不存在")
 
-    # 获取章节内容并截断前 50 个字符（仅用于演示，后续可传递完整内容给 AI）
-    # 注意：chapter.content_markdown 是实际字符串值，不是 Column 对象
-    markdown_content = chapter.content_markdown
-    markdown_preview = markdown_content[:50] if markdown_content else ""
+    # 获取章节内容
+    markdown_content = chapter.content_markdown or ""
+
+    # 1. 管理会话 (Conversation)
+    conversation_id = request.conversation_id
+    if not conversation_id:
+        # 如果没传 conversation_id，创建一个新的
+        conversation = LearningService.create_conversation(db, request.user_id, request.chapter_id)
+        conversation_id = conversation.id
+    
+    # 2. 保存用户消息
+    LearningService.save_message(db, conversation_id, "user", request.message)
+
+    # 3. 获取历史记录 (Context)
+    # 获取最近 10 条历史消息（不包含刚才存的那条用户消息，因为我们会在 Prompt 里显式加上）
+    history_messages = LearningService.get_conversation_history(db, conversation_id, limit=10)
+    # 过滤掉刚才那条最新的，避免重复（因为 get_conversation_history 会包含刚刚存的）
+    # 简单的做法是：get_conversation_history 逻辑里是按时间倒序取 limit，再反转。
+    # 只要 limit 足够大，或者我们在 Prompt 构建时小心处理。
+    # 更严谨的做法：在 Prompt 里，history 是一部分，current_user_message 是最后一部分。
+    
+    # 构建 OpenA 格式的消息列表
+    messages_payload = [
+        {"role": "system", "content": (
+            "你是一个专业的 AI 助教，负责解答用户关于课程内容的问题。\n"
+            "你的回答应该准确、简洁，并优先基于提供的【课程内容片段】进行解答。\n\n"
+            "【语气与行为准则】\n"
+            "1. 专业且富有耐心：像一位循羡诱导的导师，专注于帮助用户理解知识点。\n"
+            "2. 聚焦课程：如果用户发起闲聊，请礼貌地回应并将话题自然地引回课程内容。\n"
+            "3. 上下文连贯：参考历史对话记录，确保回答逻辑一致。\n"
+            "4. 知识优先：通过精准的知识解答体现智能。\n\n"
+            "【重要：后续问题推荐】\n"
+            "在回答结束后，请根据当前上下文，生成3个用户可能会继续追问的短问题。\n"
+            "格式要求：在回答的最末尾，必须严格按照以下格式输出（包括分隔符）：\n"
+            "<<SUGGESTED_QUESTIONS>>\n"
+            "[\"问题1\", \"问题2\", \"问题3\"]"
+        )},
+        {"role": "system", "content": f"【课程内容片段】\n{markdown_content}"}
+    ]
+    
+    # 追加历史记录
+    for msg in history_messages:
+        # 避免把刚才存进去的那条最新的 'user' message 重复加进去，
+        # 因为我们会在下面显式加一条。
+        # 简单的判断：如果 msg['content'] == request.message，可能误判。
+        # 最好是 history 不包含最后一条。
+        # 这里为了简化，我们直接把 history 全放进去，但要在 Service 里控制好，或者这里不手动加 user message?
+        # 修正策略：既然 save_message 已经存了，get_conversation_history 就会把刚才那条也取出来。
+        # 所以我们不需要再手动 append {"role": "user", "content": request.message} 了！
+        # 直接把 history 喂给 AI 即可。
+        messages_payload.append({"role": msg["role"], "content": msg["content"]})
+
+    # 配置 DeepSeek 客户端
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    model = os.getenv("DEEPSEEK_MODEL", "deepseek-v3-250324")
+
+    if not api_key:
+        async def missing_key_stream():
+            yield "⚠️ 系统未配置 DeepSeek API Key。\n请在后端环境变量中设置 `DEEPSEEK_API_KEY`。"
+        return StreamingResponse(missing_key_stream(), media_type="text/plain")
+
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def generate_stream():
         """
         生成流式响应
-
-        [开发说明] 当前实现：
-        - 返回章节信息和固定回复"阿巴阿巴"
-        - 模拟流式输出效果（每个字符间隔 50ms）
-
-        [后续修改建议]
-        - 替换为调用真实 AI 模型 API
-        - 将 chapter.content_markdown 作为上下文传递给 AI
-        - 将 request.message 作为用户问题传递给 AI
-        - 保持流式返回格式，逐字符或逐块输出 AI 响应
         """
-        # 构建响应文本
-        # 格式：章节ID信息 + Markdown预览 + 固定回复
-        response_text = (
-            f"当前正在学习的章节ID为:{chapter.id}\n"
-            f"当前章节markdown为:\n"
-            f"```markdown\n{markdown_preview}...\n```\n"
-            f"\n\n🤖：阿巴阿巴"
-        )
+        try:
+            stream = await client.chat.completions.create(
+                model=model,
+                messages=messages_payload,
+                stream=True,
+                temperature=0.7,
+                max_tokens=2000
+            )
 
-        # 模拟流式输出，每个字符间隔 50ms
-        # [开发说明] 这是为了模拟 AI 打字效果的预埋实现
-        # 后续可替换为真实的 AI 流式输出
-        for char in response_text:
-            yield char
-            await asyncio.sleep(0.05)
+            full_response_content = ""  # 用于收集完整回答
 
-    # 返回流式响应
-    return StreamingResponse(generate_stream(), media_type="text/plain")
+            # 先发一个 meta 信息给前端，告诉它 conversation_id
+            # 注意：SSE (Server-Sent Events) 标准通常只发 data。
+            # 为了简单，我们让前端自己处理，或者把 ID 放在第一个 chunk 里？
+            # 更好的做法是：响应头里带 X-Conversation-Id。
+            # 但这里是 StreamingResponse，头得在外面设。
+            
+            async for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    content_piece = chunk.choices[0].delta.content
+                    full_response_content += content_piece
+                    yield content_piece
+            
+            # 流式结束后，保存 AI 的回答到数据库
+            # 注意：这里需要一个新的 db session，因为 generate_stream 是异步生成器，
+            # 外部的 db session 可能已经关闭或不在此上下文。
+            # 但 FastAPI 的 Depends(get_db) 在 response 结束前通常是存活的。
+            # 为了安全，我们这里简单调用，假设 db 还能用。
+            # 在生产环境中，可能需要使用 async_session 或者手动创建 scope。
+            try:
+                LearningService.save_message(db, conversation_id, "assistant", full_response_content)
+            except Exception as db_e:
+                print(f"Failed to save AI response: {db_e}")
+
+        except Exception as e:
+            yield f"\n\n❌ AI 服务调用失败: {str(e)}"
+    
+    response = StreamingResponse(generate_stream(), media_type="text/plain")
+    # 在响应头中返回 conversation_id，这样前端下次可以带上它
+    response.headers["X-Conversation-Id"] = conversation_id
+    return response

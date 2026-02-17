@@ -33,7 +33,12 @@ def get_courses(
     courses = CourseService.get_courses(db, active_only)
 
     result = []
+    
     for c in courses:
+        # 临时过滤：如果 course_type 是 'exam'，则跳过
+        if c.course_type == 'exam':
+            continue
+
         course_data = {
             "id": c.id,
             "code": c.code,
@@ -47,12 +52,13 @@ def get_courses(
             "created_at": c.created_at.isoformat() if c.created_at else None
         }
 
-        if user_id and c.course_type == 'exam':
+        if user_id:
+            # 移除 course_type == 'exam' 限制，让所有课程都能显示题目统计
             total_questions = db.query(func.count(Question.id)).filter(
                 Question.course_id == c.id,
                 Question.is_deleted == False
             ).scalar() or 0
-
+            
             subquery = db.query(Question.id).filter(
                 Question.course_id == c.id,
                 Question.is_deleted == False

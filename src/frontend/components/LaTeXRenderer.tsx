@@ -20,6 +20,7 @@ export default function LaTeXRenderer({ content }: LaTeXRendererProps) {
     const loadKaTeX = async () => {
       if (typeof window !== 'undefined' && !window.katex) {
         try {
+          // @ts-ignore
           const katexModule = await import('katex');
           (window as any).katex = katexModule;
           setIsLoaded(true);
