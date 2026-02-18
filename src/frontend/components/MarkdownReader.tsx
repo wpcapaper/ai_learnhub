@@ -55,26 +55,38 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 代码块语法高亮
-          code({ node, className, children, ...props }: any) {
+          // 代码块由 pre 处理，避免 div 嵌套在 p 中
+          pre({ children }: any) {
+            return <>{children}</>;
+          },
+          code({ className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const language = match ? match[1] : '';
-            const inline = (props as any).inline || className?.includes('language-') === false;
-            return !inline ? (
-              <div className="bg-slate-100 rounded-lg my-4 overflow-x-auto">
+            const inline = !(props as any).node?.position?.start?.line || 
+                           (props as any).inline ||
+                           !className?.includes('language-');
+            
+            // 行内代码
+            if (inline) {
+              return (
+                <code className="bg-slate-200 px-1.5 py-0.5 rounded text-sm" {...props}>
+                  {children}
+                </code>
+              );
+            }
+            
+            // 代码块：使用 pre 而非 div，避免 hydration 错误
+            return (
+              <pre className="bg-slate-100 rounded-lg my-4 overflow-x-auto">
                 <SyntaxHighlighter
                   language={language}
-                  PreTag="div"
+                  PreTag="code"
                   className="rounded-lg p-4 !bg-transparent"
                   {...props}
                 >
                   {String(children).replace(/\n$/, '')}
                 </SyntaxHighlighter>
-              </div>
-            ) : (
-              <code className="bg-slate-200 px-1.5 py-0.5 rounded text-sm" {...props}>
-                {children}
-              </code>
+              </pre>
             );
           },
           // 自定义标题样式
