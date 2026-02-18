@@ -1,33 +1,18 @@
-"""RAG模块API路由"""
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
 from app.rag.service import RAGService
 from app.rag.retrieval import RetrievalResult
 from app.rag.evaluation import RecallTester, TestCase
 from app.rag.embedding import EmbeddingModelFactory
 
-router = APIRouter(prefix="/api/rag", tags=["RAG"])
-
-# 全局RAG服务实例（可以通过依赖注入优化）
-_rag_service: Optional[RAGService] = None
+router = APIRouter(prefix="/rag", tags=["RAG"])
 
 
 def get_rag_service() -> RAGService:
-    """获取RAG服务实例"""
-    global _rag_service
-    if _rag_service is None:
-        _rag_service = RAGService(
-            embedding_model_key="bge-large-zh",
-            use_reranker=False,
-            use_hybrid=False,
-            use_query_expansion=False
-        )
-    return _rag_service
+    """获取 RAG 服务单例实例"""
+    return RAGService.get_instance()
 
 
 # ========== 请求/响应模型 ==========

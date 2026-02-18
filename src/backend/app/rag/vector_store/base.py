@@ -1,32 +1,27 @@
-"""向量存储抽象接口"""
-
 from abc import ABC, abstractmethod
-from typing import List, Dict, Any, Optional
-import numpy as np
+from typing import List, Dict, Any, Optional, Union
 
 
 class VectorStore(ABC):
-    """向量存储抽象基类"""
-    
     @abstractmethod
     def add_chunks(
         self,
         chunks: List[Dict[str, Any]],
-        embeddings: np.ndarray
+        embeddings: List[List[float]]
     ) -> None:
         """
-        添加chunks到向量存储
+        添加 chunks 到向量存储
         
         Args:
-            chunks: Chunk列表，每个包含 id, text, metadata
-            embeddings: 对应的向量数组 (n_chunks, dim)
+            chunks: Chunk 列表，每个包含 id, text, metadata
+            embeddings: 对应的向量列表，shape: (n_chunks, dim)
         """
         pass
     
     @abstractmethod
     def search(
         self,
-        query_embedding: np.ndarray,
+        query_embedding: Union[List[float], Any],
         top_k: int = 5,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
@@ -34,8 +29,8 @@ class VectorStore(ABC):
         搜索相似向量
         
         Args:
-            query_embedding: 查询向量 (dim,)
-            top_k: 返回Top K结果
+            query_embedding: 查询向量，shape: (dim,)
+            top_k: 返回 Top K 结果
             filters: 元数据过滤条件
         
         Returns:

@@ -1,7 +1,4 @@
-"""ChromaDB向量存储实现"""
-
-from typing import List, Dict, Any, Optional
-import numpy as np
+from typing import List, Dict, Any, Optional, Union
 import chromadb
 from chromadb.config import Settings
 import os
@@ -10,7 +7,7 @@ from .base import VectorStore
 
 
 class ChromaVectorStore(VectorStore):
-    """ChromaDB向量存储"""
+    """ChromaDB 向量存储实现"""
     
     def __init__(
         self,
@@ -19,26 +16,13 @@ class ChromaVectorStore(VectorStore):
         host: Optional[str] = None,
         port: Optional[int] = None
     ):
-        """
-        Args:
-            collection_name: 集合名称
-            persist_directory: 持久化目录（本地模式）
-            host: 服务器地址（客户端模式）
-            port: 服务器端口（客户端模式）
-        """
         self.collection_name = collection_name
         
-        # 初始化客户端
+        # 优先使用远程服务，其次使用本地持久化
         if host and port:
-            # 客户端模式
-            self.client = chromadb.HttpClient(
-                host=host,
-                port=port
-            )
+            self.client = chromadb.HttpClient(host=host, port=port)
         else:
-            # 本地模式
             if persist_directory is None:
-                # 默认目录
                 persist_directory = os.path.join(
                     os.path.dirname(__file__),
                     "../../../data/chroma"
@@ -50,47 +34,44 @@ class ChromaVectorStore(VectorStore):
                 settings=Settings(anonymized_telemetry=False)
             )
         
-        # 获取或创建集合
+        # 使用余弦相似度
         self.collection = self.client.get_or_create_collection(
             name=collection_name,
-            metadata={"hnsw:space": "cosine"}  # 使用余弦相似度
+            metadata={"hnsw:space": "cosine"}
         )
     
     def add_chunks(
         self,
         chunks: List[Dict[str, Any]],
-        embeddings: np.ndarray
+        embeddings: List[List[float]]
     ) -> None:
-        """添加chunks"""
+        """添加 chunks 和对应的向量"""
         if len(chunks) != len(embeddings):
-            raise ValueError("chunks和embeddings数量不匹配")
+            raise ValueError(f"chunks({len(chunks)}) 和 embeddings({len(embeddings)}) 数量不匹配")
         
         ids = [chunk["id"] for chunk in chunks]
         texts = [chunk["text"] for chunk in chunks]
         metadatas = [chunk.get("metadata", {}) for chunk in chunks]
         
-        # 转换embeddings为list
-        embeddings_list = embeddings.tolist()
-        
-        # 添加到集合
         self.collection.add(
             ids=ids,
-            embeddings=embeddings_list,
+            embeddings=embeddings,
             documents=texts,
             metadatas=metadatas
         )
     
     def search(
         self,
-        query_embedding: np.ndarray,
+        query_embedding: Union[List[float], Any],
         top_k: int = 5,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[Dict[str, Any]]:
-        """搜索相似向量"""
-        # 构建查询条件
-        query_embedding_list = query_embedding.tolist()
+        """搜索相似向量，返回 Top K 结果"""
+        # 处理 numpy 数组转 list
+        if hasattr(query_embedding, 'tolist'):
+            query_embedding = query_embedding.tolist()
         
-        # 构建where条件（ChromaDB的过滤语法）
+        # 构建 ChromaDB 过滤条件
         where = None
         if filters:
             where = {}
@@ -100,65 +81,39 @@ class ChromaVectorStore(VectorStore):
                 else:
                     where[key] = value
         
-        # 执行查询
         results = self.collection.query(
-            query_embeddings=[query_embedding_list],
+            query_embeddings=[query_embedding],
             n_results=top_k,
             where=where
         )
         
-        # 格式化结果
-        formatted_results = []
-        
+        # 格式化返回结果
+        formatted = []
         if results["ids"] and len(results["ids"][0]) > 0:
             for i in range(len(results["ids"][0])):
-                formatted_results.append({
+                # 余弦距离转相似度（1 - distance）
+                distance = results["distances"][0][i] if results["distances"] else 0.0
+                formatted.append({
                     "id": results["ids"][0][i],
                     "text": results["documents"][0][i],
                     "metadata": results["metadatas"][0][i] if results["metadatas"] else {},
-                    "score": 1.0 - results["distances"][0][i] if results["distances"] else 0.0  # 距离转相似度
+                    "score": 1.0 - distance
                 })
         
-        return formatted_results
+        return formatted
     
     def delete_collection(self) -> None:
-        """删除集合"""
+        """删除集合并重新创建空集合"""
         self.client.delete_collection(name=self.collection_name)
-        # 重新创建空集合
         self.collection = self.client.get_or_create_collection(
             name=self.collection_name,
             metadata={"hnsw:space": "cosine"}
         )
     
     def get_collection_size(self) -> int:
-        """获取集合大小"""
+        """获取集合中的向量数量"""
         return self.collection.count()
     
     def delete_chunks(self, chunk_ids: List[str]) -> None:
-        """删除指定的chunks"""
+        """删除指定的 chunks"""
         self.collection.delete(ids=chunk_ids)
-    
-    def update_chunk(
-        self,
-        chunk_id: str,
-        text: Optional[str] = None,
-        embedding: Optional[np.ndarray] = None,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> None:
-        """更新chunk"""
-        # ChromaDB不支持直接更新，需要先删除再添加
-        self.collection.delete(ids=[chunk_id])
-        
-        if text is not None or embedding is not None:
-            update_data = {}
-            if text is not None:
-                update_data["documents"] = [text]
-            if embedding is not None:
-                update_data["embeddings"] = [embedding.tolist()]
-            if metadata is not None:
-                update_data["metadatas"] = [metadata]
-            
-            self.collection.add(
-                ids=[chunk_id],
-                **update_data
-            )

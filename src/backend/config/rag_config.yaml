@@ -1,0 +1,41 @@
+embedding:
+  provider: "openai"
+  
+  openai:
+    model: "text-embedding-3-small"
+    api_key: "${OPENAI_API_KEY}"
+    base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+  
+  local:
+    endpoint: "${EMBEDDING_SERVICE_URL:-http://localhost:8001/embed}"
+    timeout: 30
+  
+  custom:
+    endpoint: "${EMBEDDING_ENDPOINT}"
+    api_key: "${EMBEDDING_API_KEY:-}"
+    timeout: 30
+
+rerank:
+  enabled: false
+  provider: "local"
+  local:
+    endpoint: "${RERANK_SERVICE_URL:-http://localhost:8002/rerank}"
+    timeout: 30
+
+vector_store:
+  type: "chroma"
+  persist_directory: "./data/chroma"
+
+chunking:
+  default_strategy: "semantic"
+  semantic:
+    min_chunk_size: 100
+    max_chunk_size: 1000
+    overlap_size: 200
+  fixed:
+    chunk_size: 512
+    overlap_size: 50
+
+retrieval:
+  default_top_k: 5
+  score_threshold: 0.0

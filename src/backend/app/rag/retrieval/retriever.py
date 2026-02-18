@@ -1,8 +1,5 @@
-"""RAG检索器"""
-
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
-import numpy as np
 
 from ..embedding.models import EmbeddingModel
 from ..vector_store.base import VectorStore
@@ -10,7 +7,7 @@ from ..vector_store.base import VectorStore
 
 @dataclass
 class RetrievalResult:
-    """检索结果"""
+    """检索结果数据结构"""
     chunk_id: str
     text: str
     metadata: Dict[str, Any]
@@ -19,18 +16,9 @@ class RetrievalResult:
 
 
 class RAGRetriever:
-    """RAG检索器"""
+    """RAG 检索器，负责向量检索和结果组装"""
     
-    def __init__(
-        self,
-        embedding_model: EmbeddingModel,
-        vector_store: VectorStore
-    ):
-        """
-        Args:
-            embedding_model: Embedding模型
-            vector_store: 向量存储
-        """
+    def __init__(self, embedding_model: EmbeddingModel, vector_store: VectorStore):
         self.embedding_model = embedding_model
         self.vector_store = vector_store
     
@@ -43,54 +31,50 @@ class RAGRetriever:
         score_threshold: float = 0.0
     ) -> List[RetrievalResult]:
         """
-        检索相关文档片段
+        检索与查询相关的文档片段
         
         Args:
-            query: 查询文本
-            course_id: 课程ID
-            top_k: 返回Top K结果
+            query: 用户查询文本
+            course_id: 课程 ID
+            top_k: 返回结果数量
             filters: 元数据过滤条件
-            score_threshold: 相似度阈值
+            score_threshold: 相似度阈值（低于此值的结果会被过滤）
         
         Returns:
             检索结果列表
         """
-        # 编码查询
+        # 1. 调用 Embedding 服务将查询转为向量
         query_embedding = self.embedding_model.encode([query])[0]
         
-        # 构建过滤条件
+        # 2. 构建过滤条件
         search_filters = filters or {}
         if course_id:
             search_filters["course_id"] = course_id
         
-        # 向量检索
+        # 3. 向量检索
         results = self.vector_store.search(
             query_embedding=query_embedding,
-            top_k=top_k * 2,  # 多检索一些，用于后续过滤
+            top_k=top_k * 2,  # 多检索一些用于后续过滤
             filters=search_filters if search_filters else None
         )
         
-        # 转换为RetrievalResult并过滤
+        # 4. 过滤低分结果并构建 RetrievalResult
         retrieval_results = []
         for result in results:
             if result["score"] >= score_threshold:
-                # 构建来源信息
                 metadata = result.get("metadata", {})
-                source = self._build_source_info(metadata)
-                
                 retrieval_results.append(RetrievalResult(
                     chunk_id=result["id"],
                     text=result["text"],
                     metadata=metadata,
                     score=result["score"],
-                    source=source
+                    source=self._build_source_info(metadata)
                 ))
         
-        # 只返回top_k
         return retrieval_results[:top_k]
     
     def _build_source_info(self, metadata: Dict[str, Any]) -> str:
-        """构建来源信息字符串"""
+        """构建来源信息字符串，用于展示给用户"""
         parts = []
         
         if metadata.get("chapter_title"):
