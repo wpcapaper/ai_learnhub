@@ -267,8 +267,18 @@ interface AIAssistantProps {
                   <div className={`text-sm leading-relaxed ${message.role === 'user' ? 'whitespace-pre-wrap' : ''}`}>
                     {message.role === 'user' ? (
                       message.content
-                    ) : (
+                    ) : message.content ? (
                       <MarkdownReader content={processMessageContent(message.content)} variant="chat" />
+                    ) : (
+                      // AI消息为空时显示加载动效
+                      <div className="flex items-center space-x-3 py-1">
+                        <div className="flex space-x-1">
+                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                        </div>
+                        <span className="text-indigo-500 font-medium">{thinkingText || '正在思考...'}</span>
+                      </div>
                     )}
                   </div>
                   
@@ -291,22 +301,6 @@ interface AIAssistantProps {
                 </div>
               </div>
             ))}
-            
-            {/* 思考状态展示 */}
-            {isLoading && !isStreaming && (
-               <div className="flex flex-col items-start">
-                  <div className="text-xs text-slate-500 mb-2">AI 助手</div>
-                  <div className="bg-slate-50 border border-slate-100 text-slate-500 rounded-bl-2xl rounded-tr-2xl rounded-tl-2xl px-5 py-3 shadow-sm">
-                    <div className="flex items-center space-x-2">
-                       <svg className="animate-spin h-4 w-4 text-indigo-500" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8 8 018 16z"></path>
-                       </svg>
-                       <span className="text-sm animate-pulse">{thinkingText}</span>
-                    </div>
-                  </div>
-               </div>
-            )}
           </div>
         )}
       </div>
@@ -333,13 +327,13 @@ interface AIAssistantProps {
               disabled={isLoading || !input.trim()}
               className="px-6 py-3 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-xl hover:from-indigo-700 hover:to-indigo-800 disabled:from-slate-400 disabled:to-slate-400 disabled:cursor-not-allowed transition-all shadow-md text-sm font-medium"
             >
-              {isStreaming ? (
+              {isLoading ? (
                 <span className="inline-flex items-center">
                   <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8 8 018 16z"></path>
                   </svg>
-                  发送中...
+                  {isStreaming ? '接收中...' : '等待响应...'}
                 </span>
               ) : (
                 '发送'

@@ -161,9 +161,9 @@ scripts/data/output/*
 !scripts/data/input/sample_docx.docx
  
 # courses (学习课程 markdown 文件)
-!/courses/python_basics/*
+# 默认忽略所有课程，仅 python_basics 提交到版本控制
+!/courses/python_basics/
 /courses/
-/learning_courses/
- 
+
 # macOS
 *.DS_Store

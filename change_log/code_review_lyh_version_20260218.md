@@ -51,7 +51,7 @@
 - `scripts/import_questions.py` - 支持 update_existing
 
 ### 配置文件
-- `.gitignore` - 新增 learning_courses/ 忽略
+- `.gitignore` - 更新课程目录忽略规则
 - `docker-compose.yml` - 开发模式配置调整
 
 ---

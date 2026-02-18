@@ -107,6 +107,24 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
           a: ({ href, children }) => <a href={href} className="text-indigo-600 hover:text-indigo-800 underline">{children}</a>,
           // 自定义引用样式
           blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic my-4 text-slate-600">{children}</blockquote>,
+          // 表格样式支持
+          table: ({ children }) => (
+            <div className="overflow-x-auto my-4">
+              <table className="min-w-full border-collapse border border-slate-300">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => <thead className="bg-slate-100">{children}</thead>,
+          tbody: ({ children }) => <tbody>{children}</tbody>,
+          tr: ({ children }) => <tr className="border-b border-slate-200">{children}</tr>,
+          th: ({ children }) => <th className="border border-slate-300 px-4 py-2 text-left font-semibold text-slate-800">{children}</th>,
+          td: ({ children }) => (
+            <td className="border border-slate-300 px-4 py-2 text-slate-700">
+              {Array.isArray(children) 
+                ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
+                : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
+              }
+            </td>
+          ),
         }}
       >
         {content}
