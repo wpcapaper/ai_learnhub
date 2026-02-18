@@ -12,6 +12,7 @@ from openai import AsyncOpenAI
 from app.core.database import get_db, SessionLocal
 from app.models import Chapter
 from app.services import LearningService
+from prompts import prompt_loader
 
 
 router = APIRouter(prefix="/learning", tags=["学习课程"])
@@ -241,42 +242,19 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     LearningService.save_message(db, conversation_id, "user", request.message)
 
     # 3. 获取历史记录 (Context)
-    # 获取最近 10 条历史消息（不包含刚才存的那条用户消息，因为我们会在 Prompt 里显式加上）
-    history_messages = LearningService.get_conversation_history(db, conversation_id, limit=10)
-    # 过滤掉刚才那条最新的，避免重复（因为 get_conversation_history 会包含刚刚存的）
-    # 简单的做法是：get_conversation_history 逻辑里是按时间倒序取 limit，再反转。
-    # 只要 limit 足够大，或者我们在 Prompt 构建时小心处理。
-    # 更严谨的做法：在 Prompt 里，history 是一部分，current_user_message 是最后一部分。
+    # 从提示词配置获取最大历史记录数
+    max_history = prompt_loader.get_config("ai_assistant", "variables", {}).get("max_history", 10)
+    history_messages = LearningService.get_conversation_history(db, conversation_id, limit=max_history)
     
-    # 构建 OpenA 格式的消息列表
-    messages_payload = [
-        {"role": "system", "content": (
-            "你是一个专业的 AI 助教，负责解答用户关于课程内容的问题。\n"
-            "你的回答应该准确、简洁，并优先基于提供的【课程内容片段】进行解答。\n\n"
-            "【语气与行为准则】\n"
-            "1. 专业且富有耐心：像一位循羡诱导的导师，专注于帮助用户理解知识点。\n"
-            "2. 聚焦课程：如果用户发起闲聊，请礼貌地回应并将话题自然地引回课程内容。\n"
-            "3. 上下文连贯：参考历史对话记录，确保回答逻辑一致。\n"
-            "4. 知识优先：通过精准的知识解答体现智能。\n\n"
-            "【重要：后续问题推荐】\n"
-            "在回答结束后，请根据当前上下文，生成3个用户可能会继续追问的短问题。\n"
-            "格式要求：在回答的最末尾，必须严格按照以下格式输出（包括分隔符）：\n"
-            "<<SUGGESTED_QUESTIONS>>\n"
-            "[\"问题1\", \"问题2\", \"问题3\"]"
-        )},
-        {"role": "system", "content": f"【课程内容片段】\n{markdown_content}"}
-    ]
+    # 使用提示词加载器构建消息列表
+    messages_payload = prompt_loader.get_messages(
+        "ai_assistant",
+        include_templates=["course_context"],
+        course_content=markdown_content
+    )
     
     # 追加历史记录
     for msg in history_messages:
-        # 避免把刚才存进去的那条最新的 'user' message 重复加进去，
-        # 因为我们会在下面显式加一条。
-        # 简单的判断：如果 msg['content'] == request.message，可能误判。
-        # 最好是 history 不包含最后一条。
-        # 这里为了简化，我们直接把 history 全放进去，但要在 Service 里控制好，或者这里不手动加 user message?
-        # 修正策略：既然 save_message 已经存了，get_conversation_history 就会把刚才那条也取出来。
-        # 所以我们不需要再手动 append {"role": "user", "content": request.message} 了！
-        # 直接把 history 喂给 AI 即可。
         messages_payload.append({"role": msg["role"], "content": msg["content"]})
 
     api_key = os.getenv("LLM_API_KEY")
