@@ -1,7 +1,10 @@
 from typing import List, Optional
 import httpx
+import logging
 
 from .retriever import RetrievalResult
+
+logger = logging.getLogger(__name__)
 
 
 class Reranker:
@@ -35,17 +38,48 @@ class Reranker:
         Returns:
             重排序后的结果列表
         """
-        if not results:
-            return []
+        return self._rerank_with_tracing(query, results, top_k)
+    
+    def _rerank_with_tracing(
+        self,
+        query: str,
+        results: List[RetrievalResult],
+        top_k: Optional[int] = None
+    ) -> List[RetrievalResult]:
+        """带 Langfuse 追踪的重排序实现"""
+        from app.llm.langfuse_wrapper import _get_langfuse_client
+        from datetime import datetime as dt
         
-        # 构建请求
-        documents = [{"id": r.chunk_id, "text": r.text} for r in results]
+        langfuse_client = _get_langfuse_client()
+        trace = None
+        start_time = dt.now()
         
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        # 准备 trace 输入数据
+        input_data = {
+            "query": query[:200],
+            "result_count": len(results),
+        }
+        
+        if langfuse_client:
+            trace = langfuse_client.trace(
+                name="search_rerank",
+                input=input_data,
+                tags=["rag", "rerank"],
+            )
+        
+        error_occurred = None
+        reranked = results[:top_k] if top_k else results
         
         try:
+            if not results:
+                return []
+            
+            documents = [{"id": r.chunk_id, "text": r.text} for r in results]
+            
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            
             with httpx.Client(timeout=self.timeout) as client:
                 response = client.post(
                     self.endpoint,
@@ -55,11 +89,9 @@ class Reranker:
                 response.raise_for_status()
                 data = response.json()
                 
-                # 解析重排序结果
                 reranked_ids = [item["id"] for item in data.get("results", [])]
                 scores_map = {item["id"]: item.get("score", 0.0) for item in data.get("results", [])}
                 
-                # 按重排序顺序重新排列结果
                 id_to_result = {r.chunk_id: r for r in results}
                 reranked = []
                 for chunk_id in reranked_ids:
@@ -69,11 +101,37 @@ class Reranker:
                         reranked.append(result)
                 
                 if top_k is not None:
-                    return reranked[:top_k]
-                return reranked
+                    reranked = reranked[:top_k]
+                    
+            return reranked
                 
         except httpx.HTTPStatusError as e:
-            # 重排序失败时返回原始结果
+            error_occurred = f"HTTP {e.response.status_code}"
             return results[:top_k] if top_k else results
-        except Exception:
+        except Exception as e:
+            error_occurred = str(e)
             return results[:top_k] if top_k else results
+        finally:
+            # 记录 trace 到 Langfuse
+            if langfuse_client and trace:
+                end_time = dt.now()
+                duration_ms = (end_time - start_time).total_seconds() * 1000
+                
+                output_data = {
+                    "reranked_count": len(reranked),
+                }
+                
+                if error_occurred:
+                    output_data["error"] = error_occurred
+                
+                trace.span(
+                    name="rerank_call",
+                    input=input_data,
+                    output=output_data,
+                    start_time=start_time,
+                    end_time=end_time,
+                    metadata={"duration_ms": duration_ms},
+                )
+                
+                trace.update(output=output_data)
+                langfuse_client.flush()

@@ -1,18 +1,19 @@
 """
 学习课程API
 """
-import os
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
-from openai import AsyncOpenAI
 
 from app.core.database import get_db, SessionLocal
 from app.models import Chapter
 from app.services import LearningService
 from prompts import prompt_loader
+
+# LLM 客户端（使用新的封装层）
+from app.llm import get_llm_client, trace_llm_call
 
 
 router = APIRouter(prefix="/learning", tags=["学习课程"])
@@ -210,16 +211,14 @@ def get_user_progress(
 async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     """
     AI 课程助手对话接口（流式响应）
-    已接入 DeepSeek-V3 大模型
+    已接入 DeepSeek-V3 大模型，支持 Langfuse 监控
     """
     
-    # 参数验证
     if not request.chapter_id:
         raise HTTPException(status_code=400, detail="章节 ID 不能为空")
     if not request.message:
         raise HTTPException(status_code=400, detail="消息内容不能为空")
 
-    # 从数据库查询章节信息
     chapter = db.query(Chapter).filter(
         Chapter.id == request.chapter_id,
         Chapter.is_deleted == False
@@ -228,86 +227,120 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     if not chapter:
         raise HTTPException(status_code=404, detail=f"章节 {request.chapter_id} 不存在")
 
-    # 获取章节内容
     markdown_content = chapter.content_markdown or ""
 
-    # 1. 管理会话 (Conversation)
     conversation_id = request.conversation_id
     if not conversation_id:
-        # 如果没传 conversation_id，创建一个新的
         conversation = LearningService.create_conversation(db, request.user_id, request.chapter_id)
         conversation_id = conversation.id
     
-    # 2. 保存用户消息
     LearningService.save_message(db, conversation_id, "user", request.message)
 
-    # 3. 获取历史记录 (Context)
-    # 从提示词配置获取最大历史记录数
     max_history = prompt_loader.get_config("ai_assistant", "variables", {}).get("max_history", 10)
     history_messages = LearningService.get_conversation_history(db, conversation_id, limit=max_history)
     
-    # 使用提示词加载器构建消息列表
     messages_payload = prompt_loader.get_messages(
         "ai_assistant",
         include_templates=["course_context"],
         course_content=markdown_content
     )
     
-    # 追加历史记录
     for msg in history_messages:
         messages_payload.append({"role": msg["role"], "content": msg["content"]})
 
-    api_key = os.getenv("LLM_API_KEY")
-    base_url = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
-    model = os.getenv("LLM_MODEL", "gpt-3.5-turbo")
-
-    if not api_key:
-        async def missing_key_stream():
-            yield "⚠️ 系统未配置 LLM API Key。\n请在后端环境变量中设置 `LLM_API_KEY`。"
-        return StreamingResponse(missing_key_stream(), media_type="text/plain")
-
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    # 获取 LLM 客户端
+    try:
+        llm = get_llm_client()
+    except ValueError as err:
+        error_msg = str(err)
+        async def missing_config_stream():
+            yield f"⚠️ {error_msg}"
+        return StreamingResponse(missing_config_stream(), media_type="text/plain")
 
     async def generate_stream():
         """
         生成流式响应
-        注意：在异步生成器中使用独立的数据库会话，避免会话生命周期问题
+        使用独立的数据库会话，避免会话生命周期问题
+        集成 Langfuse 监控
         """
+        from app.llm.langfuse_wrapper import _get_langfuse_client
+        from datetime import datetime as dt
+        
         db_stream = SessionLocal()
+        langfuse_client = _get_langfuse_client()
+        trace = None
+        start_time = dt.now()
+        
+        # 准备 trace 输入数据
+        input_data = {
+            "user_message": request.message,
+            "chapter_id": request.chapter_id,
+            "messages_count": len(messages_payload),
+        }
+        
+        # 创建 Langfuse trace
+        if langfuse_client:
+            trace = langfuse_client.trace(
+                name="ai_chat",
+                input=input_data,
+                tags=["assistant", "course"],
+            )
+        
+        full_response_content = ""
+        error_occurred = None
+        
         try:
-            stream = await client.chat.completions.create(
-                model=model,
-                messages=messages_payload,
-                stream=True,
+            # 流式调用 LLM
+            async for chunk in llm.chat_stream(
+                messages_payload,
                 temperature=0.7,
                 max_tokens=2000
-            )
-
-            full_response_content = ""  # 用于收集完整回答
-
-            # 先发一个 meta 信息给前端，告诉它 conversation_id
-            # 注意：SSE (Server-Sent Events) 标准通常只发 data。
-            # 为了简单，我们让前端自己处理，或者把 ID 放在第一个 chunk 里？
-            # 更好的做法是：响应头里带 X-Conversation-Id。
-            # 但这里是 StreamingResponse，头得在外面设。
+            ):
+                if chunk.content:
+                    full_response_content += chunk.content
+                    yield chunk.content
             
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    content_piece = chunk.choices[0].delta.content
-                    full_response_content += content_piece
-                    yield content_piece
-            
-            # 流式结束后，保存 AI 的回答到数据库
-            # 使用独立的 db_stream 会话，确保在正确的上下文中保存
+            # 保存助手回复到数据库
             LearningService.save_message(db_stream, conversation_id, "assistant", full_response_content)
             db_stream.commit()
 
         except Exception as e:
+            error_occurred = str(e)
             yield f"\n\n❌ AI 服务调用失败: {str(e)}"
         finally:
             db_stream.close()
+            
+            # 记录 trace 到 Langfuse（在流结束后更新完整输出）
+            if langfuse_client and trace:
+                end_time = dt.now()
+                duration_ms = (end_time - start_time).total_seconds() * 1000
+                
+                output_data = {
+                    "response_length": len(full_response_content),
+                    "response_preview": full_response_content[:500] if full_response_content else None,
+                }
+                
+                if error_occurred:
+                    output_data["error"] = error_occurred
+                
+                # 添加 span 记录 LLM 调用详情
+                trace.span(
+                    name="llm_call",
+                    input=input_data,
+                    output=output_data,
+                    start_time=start_time,
+                    end_time=end_time,
+                    metadata={
+                        "duration_ms": duration_ms,
+                        "model": "streaming",
+                    },
+                )
+                
+                # 更新 trace 的 output
+                trace.update(output=output_data)
+                
+                langfuse_client.flush()
     
     response = StreamingResponse(generate_stream(), media_type="text/plain")
-    # 在响应头中返回 conversation_id，这样前端下次可以带上它
     response.headers["X-Conversation-Id"] = conversation_id
     return response

@@ -167,3 +167,9 @@ scripts/data/output/*
 
 # macOS
 *.DS_Store
+
+# Docker volumes (named volumes 由 Docker 管理，此处仅为保险)
+redis_data/
+langfuse_db_data/
+clickhouse_data/
+clickhouse_logs/

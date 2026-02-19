@@ -13,10 +13,15 @@ dependencies = [
     "openai>=1.0.0",
     "python-dotenv>=1.0.0",
     "jinja2>=3.1.6",
+    # LLM 监控 (v2.x 匹配 langfuse 容器版本)
+    "langfuse>=2.0.0,<3.0.0",
     # RAG模块依赖（轻量化，不包含模型）
     "chromadb>=0.4.0",
     "httpx>=0.25.0",
     "numpy>=1.24.0",
     "langdetect>=1.0.9",
     "pyyaml>=6.0.0",
+    # 异步任务队列
+    "redis>=5.0.0",
+    "rq>=1.15.0",
 ]

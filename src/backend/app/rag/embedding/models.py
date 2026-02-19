@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from typing import List, Optional, Dict, Any
 import os
 import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class EmbeddingModel(ABC):
@@ -36,6 +39,34 @@ class OpenAIEmbedder(EmbeddingModel):
     
     def encode(self, texts: List[str], **kwargs) -> List[List[float]]:
         """调用 OpenAI API 生成向量"""
+        return self._encode_with_tracing(texts)
+    
+    def _encode_with_tracing(self, texts: List[str]) -> List[List[float]]:
+        """带 Langfuse 追踪的编码实现"""
+        from app.llm.langfuse_wrapper import _get_langfuse_client
+        from datetime import datetime as dt
+        
+        langfuse_client = _get_langfuse_client()
+        trace = None
+        start_time = dt.now()
+        
+        # 准备 trace 输入数据
+        input_data = {
+            "text_count": len(texts),
+            "model": self.model,
+            "sample": texts[0][:100] if texts else None,
+        }
+        
+        if langfuse_client:
+            trace = langfuse_client.trace(
+                name="openai_embedding",
+                input=input_data,
+                tags=["embedding", "openai"],
+            )
+        
+        error_occurred = None
+        result = None
+        
         try:
             with httpx.Client(timeout=60.0) as client:
                 response = client.post(
@@ -52,13 +83,41 @@ class OpenAIEmbedder(EmbeddingModel):
                 response.raise_for_status()
                 data = response.json()
                 
-                # 按 index 排序确保顺序正确
                 embeddings = sorted(data["data"], key=lambda x: x["index"])
-                return [item["embedding"] for item in embeddings]
+                result = [item["embedding"] for item in embeddings]
+                return result
+                
         except httpx.HTTPStatusError as e:
+            error_occurred = f"HTTP {e.response.status_code}: {e.response.text[:200]}"
             raise RuntimeError(f"Embedding API 调用失败: {e.response.status_code} - {e.response.text}")
         except Exception as e:
+            error_occurred = str(e)
             raise RuntimeError(f"Embedding API 调用异常: {str(e)}")
+        finally:
+            # 记录 trace 到 Langfuse
+            if langfuse_client and trace:
+                end_time = dt.now()
+                duration_ms = (end_time - start_time).total_seconds() * 1000
+                
+                output_data = {
+                    "embedding_count": len(result) if result else 0,
+                    "dimension": len(result[0]) if result else 0,
+                }
+                
+                if error_occurred:
+                    output_data["error"] = error_occurred
+                
+                trace.span(
+                    name="embedding_call",
+                    input=input_data,
+                    output=output_data,
+                    start_time=start_time,
+                    end_time=end_time,
+                    metadata={"duration_ms": duration_ms, "model": self.model},
+                )
+                
+                trace.update(output=output_data)
+                langfuse_client.flush()
     
     def get_dimension(self) -> int:
         return self._dimension

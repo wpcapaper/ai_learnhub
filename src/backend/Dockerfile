@@ -3,7 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # 安装 uv 加速依赖安装
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 RUN pip install uv && uv sync --no-dev --no-install-project
 
 # 安装项目
