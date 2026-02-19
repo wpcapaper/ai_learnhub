@@ -265,28 +265,57 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         """
         from app.llm.langfuse_wrapper import _get_langfuse_client
         from datetime import datetime as dt
+        from app.models.user import User
         
         db_stream = SessionLocal()
         langfuse_client = _get_langfuse_client()
         trace = None
         start_time = dt.now()
         
-        # 准备 trace 输入数据
+        # 获取用户昵称用于 Langfuse 追踪
+        # 注意：当前开发阶段使用 nickname 便于在 Langfuse 中直观识别用户
+        # 后续生产化应改为使用 user_id，因为 nickname 可能重复或变更
+        user_nickname = None
+        if request.user_id:
+            user = db_stream.query(User).filter(User.id == request.user_id).first()
+            if user:
+                user_nickname = user.nickname
+        
+        # 提取 system prompt 和 user messages
+        # 注意：messages_payload 可能包含多条 system 消息（如 system_prompt + course_context）
+        system_parts = []
+        user_messages = []
+        for msg in messages_payload:
+            if msg.get("role") == "system":
+                system_parts.append(msg.get("content", ""))
+            else:
+                user_messages.append({
+                    "role": msg.get("role"),
+                    "content": msg.get("content", "")[:200],  # 截断避免过长
+                })
+        
+        # 合并所有 system 消息为完整的 prompt
+        full_system_prompt = "\n\n".join(system_parts) if system_parts else None
+        
+        # 准备 trace 输入数据（包含完整的 prompt 信息）
         input_data = {
             "user_message": request.message,
             "chapter_id": request.chapter_id,
-            "messages_count": len(messages_payload),
+            "system_prompt": full_system_prompt,  # 合并后的完整 system prompt
+            "conversation_history_count": len(user_messages) - 1 if user_messages else 0,  # 历史消息数
         }
         
-        # 创建 Langfuse trace
+        # 创建 Langfuse trace（包含 user 信息）
         if langfuse_client:
             trace = langfuse_client.trace(
                 name="ai_chat",
                 input=input_data,
+                user_id=user_nickname or request.user_id,  # 优先使用 nickname 便于识别
                 tags=["assistant", "course"],
             )
         
         full_response_content = ""
+        usage_info = None  # 收集 token 使用信息
         error_occurred = None
         
         try:
@@ -299,6 +328,9 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                 if chunk.content:
                     full_response_content += chunk.content
                     yield chunk.content
+                elif chunk.usage:
+                    # 收集 usage 信息（最后一个块）
+                    usage_info = chunk.usage
             
             # 保存助手回复到数据库
             LearningService.save_message(db_stream, conversation_id, "assistant", full_response_content)
@@ -323,16 +355,23 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                 if error_occurred:
                     output_data["error"] = error_occurred
                 
-                # 添加 span 记录 LLM 调用详情
-                trace.span(
+                # 使用 generation 类型记录 LLM 调用（支持 usage 统计）
+                trace.generation(
                     name="llm_call",
                     input=input_data,
                     output=output_data,
+                    model=llm.default_model,
+                    usage={
+                        "input": usage_info.get("prompt_tokens") if usage_info else None,
+                        "output": usage_info.get("completion_tokens") if usage_info else None,
+                        "total": usage_info.get("total_tokens") if usage_info else None,
+                    } if usage_info else None,
                     start_time=start_time,
                     end_time=end_time,
                     metadata={
                         "duration_ms": duration_ms,
-                        "model": "streaming",
+                        "temperature": 0.7,
+                        "max_tokens": 2000,
                     },
                 )
                 

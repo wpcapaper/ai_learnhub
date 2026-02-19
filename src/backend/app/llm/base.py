@@ -66,9 +66,11 @@ class StreamChunk:
     Attributes:
         content: 内容片段
         finish_reason: 完成原因（最后一个块）
+        usage: Token 使用情况（最后一个块，需要启用 stream_options）
     """
     content: str
     finish_reason: Optional[str] = None
+    usage: Optional[Dict[str, int]] = None
 
 
 class LLMClient(ABC):

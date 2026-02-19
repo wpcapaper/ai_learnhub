@@ -173,7 +173,8 @@ class OpenAIClient(LLMClient):
             "model": model,
             "messages": messages,
             "temperature": temperature,
-            "stream": True,  # 启用流式
+            "stream": True,
+            "stream_options": {"include_usage": True},  # 启用 usage 返回
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
@@ -186,14 +187,25 @@ class OpenAIClient(LLMClient):
             
             # 逐块返回
             async for chunk in stream:
+                # 检查是否有 usage 信息（最后一个块）
+                if hasattr(chunk, 'usage') and chunk.usage:
+                    yield StreamChunk(
+                        content="",
+                        finish_reason=None,
+                        usage={
+                            "prompt_tokens": chunk.usage.prompt_tokens,
+                            "completion_tokens": chunk.usage.completion_tokens,
+                            "total_tokens": chunk.usage.total_tokens,
+                        },
+                    )
                 # 检查是否有内容
-                if chunk.choices and chunk.choices[0].delta.content:
+                elif chunk.choices and chunk.choices[0].delta.content:
                     yield StreamChunk(
                         content=chunk.choices[0].delta.content,
                         finish_reason=chunk.choices[0].finish_reason,
                     )
                 elif chunk.choices and chunk.choices[0].finish_reason:
-                    # 最后一个块（只有 finish_reason）
+                    # 只有 finish_reason 的块
                     yield StreamChunk(
                         content="",
                         finish_reason=chunk.choices[0].finish_reason,

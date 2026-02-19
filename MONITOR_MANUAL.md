@@ -163,6 +163,7 @@ docker-compose restart backend
 ```
 名称：ai_chat
 ID：trace_xxxxx
+用户：(nickname，便于识别)
 时间：2026-02-19 10:30:45
 耗时：1234ms
 ```
@@ -172,11 +173,56 @@ ID：trace_xxxxx
 **Input（输入）**：
 ```json
 {
-  "args": null,
-  "kwargs": {
-    "messages": "[{\"role\": \"user\", \"content\": \"什么是机器学习？\"}]",
-    "temperature": "0.7"
-  }
+  "user_message": "什么是RAG？",
+  "chapter_id": "xxx-xxx-xxx",
+  "system_prompt": "【课程内容片段】\n# 认识问题与RAG概述\n...(完整的 system prompt)...",
+  "conversation_history_count": 2
+}
+```
+
+> **说明**：`system_prompt` 包含完整的课程内容片段和系统提示词，便于在 Langfuse 中查看 LLM 实际收到的上下文信息。
+
+**Output（输出）**：
+```json
+{
+  "response_length": 596,
+  "response_preview": "RAG 是检索增强生成的缩写..."
+}
+```
+
+#### 3. Token 使用量
+
+每条 LLM 调用都会记录 Token 使用情况：
+
+| 字段 | 说明 |
+|------|------|
+| **Prompt Tokens** | 输入 Token 数（包含系统提示词、历史消息） |
+| **Completion Tokens** | 输出 Token 数（LLM 生成的回复） |
+| **Total Tokens** | 总 Token 数 |
+
+#### 4. Span（子操作）
+
+每个 Trace 包含一个或多个 Span，展示调用细节：
+
+```
+├── ai_chat (Trace)
+    ├── llm_call (Generation)
+        ├── 模型：glm-5 / deepseek-chat
+        ├── 开始时间：10:30:45.000
+        ├── 结束时间：10:30:46.234
+        ├── 耗时：1234ms
+        ├── Prompt Tokens：1941
+        ├── Completion Tokens：384
+        └── Total Tokens：2325
+```
+
+#### 5. 用户追踪
+
+每条 Trace 关联用户信息：
+- **开发阶段**：使用用户昵称（nickname），便于在 Langfuse 中直观识别
+- **生产阶段**：建议改为使用稳定的 user_id（因为 nickname 可能重复或变更）
+
+在 Langfuse UI 中可以按用户筛选查看所有对话记录。
 }
 ```
 
