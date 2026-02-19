@@ -1,257 +1,277 @@
-/**
- * 分块优化页面
- * 
- * 可视化展示不同分块策略的效果对比
- */
-
 'use client';
 
-import { useState, useEffect } from 'react';
-import { adminApi, OptimizationReport, StrategyResult, Course } from '@/lib/api';
+import { useState, useEffect, useRef } from 'react';
+import { adminApi, Course } from '@/lib/api';
+
+interface TerminalLine {
+  type: 'agent' | 'skill' | 'output' | 'success' | 'error' | 'progress' | 'result';
+  content: string;
+  skill?: string;
+  data?: Record<string, unknown>;
+}
 
 export default function OptimizationPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [selectedCourse, setSelectedCourse] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [report, setReport] = useState<OptimizationReport | null>(null);
+  const [lines, setLines] = useState<TerminalLine[]>([]);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<Record<string, unknown> | null>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadCourses();
   }, []);
 
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [lines]);
+
   const loadCourses = async () => {
     const response = await adminApi.getCourses();
     if (response.success && response.data) {
       setCourses(response.data);
-      if (response.data.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const courseParam = params.get('course');
+      if (courseParam && response.data.find(c => c.id === courseParam)) {
+        setSelectedCourse(courseParam);
+      } else if (response.data.length > 0) {
         setSelectedCourse(response.data[0].id);
       }
     }
   };
 
+  const addLine = (line: TerminalLine) => {
+    setLines(prev => [...prev, line]);
+  };
+
   const runOptimization = async () => {
-    if (!selectedCourse) return;
+    if (!selectedCourse || running) return;
 
-    setLoading(true);
-    setReport(null);
+    setLines([]);
+    setResult(null);
+    setRunning(true);
 
-    const response = await adminApi.runOptimization(selectedCourse);
-    
-    if (response.success && response.data) {
-      setReport(response.data);
-    } else {
-      alert(`优化失败: ${response.error}`);
+    addLine({ type: 'agent', content: `[Agent] 开始 RAG 优化任务...` });
+    addLine({ type: 'output', content: `[Agent] 目标课程: ${selectedCourse}` });
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_ADMIN_API_URL || 'http://localhost:8000'}/api/admin/rag/optimize/stream`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course_id: selectedCourse }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              handleEvent(event);
+            } catch {
+              // Ignore parse errors
+            }
+          }
+        }
+      }
+    } catch (error) {
+      addLine({ type: 'error', content: `[Error] ${error}` });
+    } finally {
+      setRunning(false);
     }
-    
-    setLoading(false);
   };
 
-  const loadReport = async () => {
-    if (!selectedCourse) return;
-
-    const response = await adminApi.getOptimizationReport(selectedCourse);
-    if (response.success && response.data) {
-      setReport(response.data);
-    } else {
-      alert('暂无优化报告，请先运行优化');
+  const handleEvent = (event: { type: string; content: string; skill?: string; data?: Record<string, unknown> }) => {
+    switch (event.type) {
+      case 'agent_start':
+        addLine({ type: 'agent', content: `[Agent] ${event.content}` });
+        break;
+      case 'agent_thinking':
+        addLine({ type: 'output', content: `       ${event.content}` });
+        break;
+      case 'skill_start':
+        addLine({ type: 'skill', content: `[Skill] ${event.skill}: ${event.content}`, skill: event.skill });
+        break;
+      case 'skill_output':
+        addLine({ type: 'output', content: `  → ${event.content}`, skill: event.skill, data: event.data });
+        break;
+      case 'skill_complete':
+        addLine({ type: 'success', content: `  ✓ ${event.skill} 完成`, data: event.data });
+        break;
+      case 'progress':
+        const progress = event.data as { current: number; total: number; percent: number };
+        addLine({ type: 'progress', content: `[${progress.current}/${progress.total}] ${event.content}` });
+        break;
+      case 'agent_complete':
+        addLine({ type: 'success', content: `\n[Agent] ===== 优化完成 =====` });
+        if (event.data) {
+          setResult(event.data);
+          const data = event.data as { recommended_strategy?: string; summary?: string };
+          if (data.recommended_strategy) {
+            addLine({ type: 'result', content: `[推荐策略] ${data.recommended_strategy}` });
+          }
+          if (data.summary) {
+            addLine({ type: 'output', content: data.summary });
+          }
+        }
+        break;
+      case 'agent_error':
+        addLine({ type: 'error', content: `[Error] ${event.content}` });
+        break;
+      default:
+        addLine({ type: 'output', content: event.content });
     }
   };
 
-  // 计算图表最大值
-  const getMaxRecall = () => {
-    if (!report) return 1;
-    return Math.max(...Object.values(report.strategy_results).map(r => r.avg_recall));
+  const getLineColor = (type: TerminalLine['type']) => {
+    switch (type) {
+      case 'agent': return 'text-indigo-400';
+      case 'skill': return 'text-cyan-400';
+      case 'success': return 'text-green-400';
+      case 'error': return 'text-red-400';
+      case 'progress': return 'text-yellow-400';
+      case 'result': return 'text-purple-400 font-bold';
+      default: return 'text-gray-300';
+    }
   };
 
   return (
-    <div className="space-y-6">
-      {/* 标题 */}
-      <div>
-        <h1 className="text-2xl font-bold text-yellow-400 font-mono">
-          &gt;_ 分块策略优化
-        </h1>
-        <p className="text-gray-500 text-sm mt-1 font-mono">
-          测试不同分块策略，找出最佳RAG配置
-        </p>
-      </div>
-
-      {/* 控制面板 */}
-      <div className="terminal">
-        <div className="terminal-line text-cyan-400 mb-4">
-          === 优化配置 ===
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h1 className="text-xl font-semibold text-white mb-0.5">RAG 优化工作台</h1>
+          <p className="text-gray-500 text-sm">基于 Agent 的智能分块策略优化</p>
         </div>
-
-        <div className="flex gap-4 items-end">
-          <div className="flex-1">
-            <label className="block text-gray-400 text-sm mb-2">选择课程</label>
-            <select
-              value={selectedCourse}
-              onChange={(e) => setSelectedCourse(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 text-white px-3 py-2 rounded font-mono"
-            >
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.code} - {course.title}
-                </option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={runOptimization}
-            disabled={loading || !selectedCourse}
-            className="px-6 py-2 bg-yellow-600 hover:bg-yellow-500 disabled:bg-gray-600 
-                       text-black font-mono rounded transition-colors"
+        <div className="flex gap-2 items-center">
+          <select
+            value={selectedCourse}
+            onChange={(e) => setSelectedCourse(e.target.value)}
+            disabled={running}
+            className="bg-[#1e1e3f] border border-[rgba(99,102,241,0.2)] text-white text-sm px-3 py-2 rounded-lg min-w-[180px]"
           >
-            {loading ? '优化中...' : '运行优化'}
-          </button>
-          <button
-            onClick={loadReport}
-            disabled={!selectedCourse}
-            className="px-6 py-2 bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 
-                       text-white font-mono rounded transition-colors"
-          >
-            加载报告
+            <option value="">选择课程</option>
+            {courses.map((course) => (
+              <option key={course.id} value={course.id}>
+                {course.code} - {course.title}
+              </option>
+            ))}
+          </select>
+          <button onClick={runOptimization} disabled={running || !selectedCourse} className="btn btn-primary text-sm py-2 px-3">
+            {running ? (
+              <>
+                <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="icon-spin">
+                  <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                优化中...
+              </>
+            ) : (
+              <>
+                <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                启动优化
+              </>
+            )}
           </button>
         </div>
       </div>
 
-      {/* 加载状态 */}
-      {loading && (
-        <div className="terminal">
-          <div className="text-yellow-400">
-            <span className="loading-dots">正在分析分块策略</span>
-          </div>
-          <div className="text-gray-500 text-sm mt-2">
-            这可能需要几分钟时间，取决于课程内容大小...
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="lg:col-span-3">
+          <div className="card p-0 overflow-hidden">
+            <div className="terminal-header px-4 py-2 border-b border-[rgba(99,102,241,0.2)] bg-[#0d0d0d]">
+              <div className="flex items-center gap-2">
+                <span className="terminal-dot terminal-dot-red" />
+                <span className="terminal-dot terminal-dot-yellow" />
+                <span className="terminal-dot terminal-dot-green" />
+                <span className="ml-3 text-gray-500 text-xs">Agent Console</span>
+              </div>
+            </div>
+            <div ref={terminalRef} className="terminal min-h-[400px] rounded-none border-none">
+              {lines.length === 0 ? (
+                <div className="text-gray-600">
+                  选择课程并点击"启动优化"开始...
+                </div>
+              ) : (
+                lines.map((line, i) => (
+                  <div key={i} className={`terminal-line ${getLineColor(line.type)}`}>
+                    {line.content}
+                  </div>
+                ))
+              )}
+              {running && (
+                <div className="terminal-line text-yellow-400">
+                  <span className="loading-dots">处理中</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
 
-      {/* 优化结果 */}
-      {report && (
-        <div className="space-y-6">
-          {/* 总结 */}
-          <div className="terminal">
-            <div className="text-green-400 mb-2">=== 优化结果 ===</div>
-            <div className="text-white">{report.summary}</div>
-            <div className="mt-2">
-              <span className="text-gray-400">推荐策略: </span>
-              <span className="text-yellow-400 font-bold">{report.recommended_strategy}</span>
+        <div className="space-y-3">
+          <div className="card p-3">
+            <h3 className="text-xs font-medium text-white mb-2">执行状态</h3>
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">状态</span>
+                <span className={running ? 'text-yellow-400' : result ? 'text-green-400' : 'text-gray-400'}>
+                  {running ? '运行中' : result ? '已完成' : '待执行'}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-gray-500">输出行数</span>
+                <span className="text-white">{lines.length}</span>
+              </div>
             </div>
           </div>
 
-          {/* 策略对比图表 */}
-          <div className="terminal">
-            <div className="text-cyan-400 mb-4">=== 召回率对比 ===</div>
-            
-            <div className="space-y-4">
-              {Object.entries(report.strategy_results)
-                .sort((a, b) => b[1].avg_recall - a[1].avg_recall)
-                .map(([name, result]) => {
-                  const percentage = result.avg_recall * 100;
-                  const isRecommended = name === report.recommended_strategy;
-                  
-                  return (
-                    <div key={name} className={`p-3 border rounded ${isRecommended ? 'border-yellow-500' : 'border-gray-700'}`}>
-                      <div className="flex justify-between items-center mb-2">
-                        <div className="flex items-center gap-2">
-                          {isRecommended && <span className="text-yellow-400">★</span>}
-                          <span className={`font-mono ${isRecommended ? 'text-yellow-400' : 'text-white'}`}>
-                            {name}
-                          </span>
-                        </div>
-                        <span className={`font-mono ${isRecommended ? 'text-yellow-400' : 'text-green-400'}`}>
-                          {percentage.toFixed(1)}%
-                        </span>
-                      </div>
-                      
-                      {/* 进度条 */}
-                      <div className="progress-bar">
-                        <div 
-                          className={`progress-fill ${isRecommended ? 'bg-yellow-500' : 'bg-green-500'}`}
-                          style={{ width: `${(result.avg_recall / getMaxRecall()) * 100}%` }}
-                        />
-                      </div>
-                      
-                      {/* 详细指标 */}
-                      <div className="flex gap-6 mt-2 text-xs text-gray-500">
-                        <span>分块数: {result.chunk_count}</span>
-                        <span>平均大小: {result.avg_chunk_size.toFixed(0)} 字符</span>
-                      </div>
-                    </div>
-                  );
-                })}
+          {result && (
+            <div className="card p-3">
+              <h3 className="text-xs font-medium text-white mb-2">优化结果</h3>
+              <div className="space-y-1.5 text-xs">
+                {((result as { ranking?: { strategy: string; recall: number }[] }).ranking || []).slice(0, 5).map((r, i) => (
+                  <div key={r.strategy} className="flex justify-between">
+                    <span className={i === 0 ? 'text-yellow-400' : 'text-gray-400'}>
+                      {i === 0 && '★ '}{r.strategy}
+                    </span>
+                    <span className="text-white">{(r.recall * 100).toFixed(1)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="card p-3">
+            <h3 className="text-xs font-medium text-white mb-2">可用 Skills</h3>
+            <div className="space-y-1 text-xs text-gray-500">
+              <div>• analyze_content</div>
+              <div>• test_chunking</div>
+              <div>• generate_test_queries</div>
+              <div>• evaluate_retrieval</div>
+              <div>• compare_strategies</div>
+              <div>• generate_summary</div>
             </div>
           </div>
-
-          {/* 推荐配置 */}
-          <div className="terminal">
-            <div className="text-cyan-400 mb-4">=== 推荐配置 ===</div>
-            
-            <div className="code-block">
-              <pre className="text-gray-300 text-sm">
-                {JSON.stringify(report.recommended_config, null, 2)}
-              </pre>
-            </div>
-            
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(JSON.stringify(report.recommended_config, null, 2));
-                alert('配置已复制到剪贴板');
-              }}
-              className="mt-2 text-cyan-400 hover:text-cyan-300"
-            >
-              [复制配置]
-            </button>
-          </div>
-
-          {/* 详细数据表 */}
-          <div className="terminal">
-            <div className="text-cyan-400 mb-4">=== 详细数据 ===</div>
-            
-            <table className="terminal-table w-full">
-              <thead>
-                <tr>
-                  <th>策略名称</th>
-                  <th>召回率</th>
-                  <th>分块数</th>
-                  <th>平均大小</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(report.strategy_results)
-                  .sort((a, b) => b[1].avg_recall - a[1].avg_recall)
-                  .map(([name, result]) => (
-                    <tr key={name} className={name === report.recommended_strategy ? 'text-yellow-400' : ''}>
-                      <td>{name}</td>
-                      <td>{(result.avg_recall * 100).toFixed(1)}%</td>
-                      <td>{result.chunk_count}</td>
-                      <td>{result.avg_chunk_size.toFixed(0)}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
         </div>
-      )}
-
-      {/* 说明 */}
-      {!report && !loading && (
-        <div className="terminal">
-          <div className="text-yellow-400 mb-2">=== 分块策略说明 ===</div>
-          <div className="text-gray-400 text-sm space-y-2">
-            <p>不同的分块策略会影响RAG系统的召回效果：</p>
-            <ul className="list-disc list-inside space-y-1">
-              <li><span className="text-white">semantic_small</span> - 小型语义块（100-500字符），召回细粒度高</li>
-              <li><span className="text-white">semantic_medium</span> - 中型语义块（200-1000字符），平衡选择</li>
-              <li><span className="text-white">semantic_large</span> - 大型语义块（500-2000字符），保留更多上下文</li>
-              <li><span className="text-white">fixed_small</span> - 固定256字符，适合结构化内容</li>
-              <li><span className="text-white">fixed_medium</span> - 固定512字符，通用选择</li>
-              <li><span className="text-white">heading_based</span> - 按标题分割，保持章节完整</li>
-            </ul>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

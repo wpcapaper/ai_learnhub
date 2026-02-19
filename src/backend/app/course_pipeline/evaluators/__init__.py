@@ -334,29 +334,71 @@ class QualityEvaluator:
             for ch in context.chapters
         ])
         
+        # Langfuse 监控
+        from app.llm.langfuse_wrapper import _get_langfuse_client
+        from app.llm import get_llm_client
+        from prompts import prompt_loader
+        
+        langfuse_client = _get_langfuse_client()
+        trace = None
+        start_time = datetime.now()
+        
+        # 截取内容用于 trace 记录
+        max_content_length = prompt_loader.get_config("course_quality_evaluator", "max_content_length", 10000)
+        truncated_content = full_content[:max_content_length]
+        
+        # 准备 trace 输入数据
+        input_data = {
+            "course_id": context.course_id,
+            "course_title": context.course_title,
+            "chapter_count": len(context.chapters),
+            "content_length": len(full_content),
+            "truncated": len(full_content) > max_content_length,
+        }
+        
+        # 创建 Langfuse trace
+        if langfuse_client:
+            trace = langfuse_client.trace(
+                name="course_quality_evaluation",
+                input=input_data,
+                tags=["course", "quality", "evaluation"],
+            )
+        
+        error_occurred = None
+        result_text = ""
+        usage_info = None
+        issues_found = 0
+        
         try:
             # 使用PromptLoader加载提示词模板
-            from app.prompts.loader import prompt_loader
             messages = prompt_loader.get_messages(
                 "course_quality_evaluator",
                 include_templates=["evaluation_request"],
                 course_title=context.course_title,
-                course_content=full_content[:prompt_loader.get_config("course_quality_evaluator", "max_content_length", 10000)]
+                course_content=truncated_content
             )
             
             # 调用统一的LLM客户端（同步接口）
-            from app.llm import get_llm_client
             llm = get_llm_client()
             response = llm.chat_sync(
                 messages=messages,
                 temperature=0.3
             )
             
+            # 提取 usage 信息
+            if response.usage:
+                usage_info = {
+                    "prompt_tokens": response.usage.get("prompt_tokens"),
+                    "completion_tokens": response.usage.get("completion_tokens"),
+                    "total_tokens": response.usage.get("total_tokens"),
+                }
+            
             # 解析结果
             result_text = response.content
             json_match = re.search(r'```json\s*([\s\S]*?)\s*```', result_text)
             if json_match:
                 issues = json.loads(json_match.group(1))
+                issues_found = len(issues)
                 for issue in issues:
                     # 找到对应的章节
                     chapter_file = ""
@@ -374,8 +416,38 @@ class QualityEvaluator:
                         suggestion=issue.get("suggestion", "")
                     ))
         except Exception as e:
+            error_occurred = str(e)
             # LLM评估失败，记录但不影响整体流程
             report.recommendations.append(f"LLM评估未能完成: {str(e)}")
+        finally:
+            # 记录 trace 到 Langfuse
+            if langfuse_client and trace:
+                end_time = datetime.now()
+                output_data = {
+                    "issues_found": issues_found,
+                    "response_length": len(result_text),
+                    "response_preview": result_text[:500] if result_text else None,
+                }
+                if error_occurred:
+                    output_data["error"] = error_occurred
+                
+                # 使用 generation 支持 usage 统计
+                trace.generation(
+                    name="llm_call",
+                    input=input_data,
+                    output=output_data,
+                    model=llm.default_model if (llm := get_llm_client()) else None,
+                    usage={
+                        "input": usage_info.get("prompt_tokens") if usage_info else None,
+                        "output": usage_info.get("completion_tokens") if usage_info else None,
+                        "total": usage_info.get("total_tokens") if usage_info else None,
+                    },
+                    start_time=start_time,
+                    end_time=end_time,
+                    metadata={"duration_ms": (end_time - start_time).total_seconds() * 1000},
+                )
+                trace.update(output=output_data)
+                langfuse_client.flush()
     
     def _generate_summary(self, report: QualityReport):
         """生成报告总结"""

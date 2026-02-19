@@ -8,10 +8,12 @@
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 import os
 import json
+import uuid
 from pathlib import Path
 
 # 课程转换管道
@@ -22,6 +24,9 @@ from app.course_pipeline import (
 )
 from app.course_pipeline.pipeline import RAGChunkOptimizer
 from app.course_pipeline.evaluators import load_quality_report
+
+# Agent 框架
+from app.agent import RAGOptimizerAgent, AgentEvent
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -346,3 +351,65 @@ async def update_rag_config(config: Dict[str, Any]):
         yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
     
     return {"message": "配置已更新"}
+
+
+# ==================== Agent SSE 流式 API ====================
+
+@router.post("/rag/optimize/stream")
+async def run_optimization_stream(request: OptimizationRequest):
+    """
+    运行 RAG 优化（SSE 流式输出）
+    
+    使用 Agent 框架执行优化，实时输出执行过程。
+    返回 SSE 格式的流式数据。
+    """
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / request.course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    course_json = load_course_json(course_dir)
+    if not course_json:
+        raise HTTPException(status_code=404, detail="课程配置不存在")
+    
+    content_parts = []
+    for chapter in course_json.get("chapters", []):
+        chapter_file = course_dir / chapter.get("file", "")
+        if chapter_file.exists():
+            with open(chapter_file, 'r', encoding='utf-8') as f:
+                content_parts.append(f.read())
+    
+    if not content_parts:
+        raise HTTPException(status_code=400, detail="课程内容为空")
+    
+    full_content = "\n\n".join(content_parts)
+    
+    async def event_generator():
+        agent = RAGOptimizerAgent()
+        task_id = str(uuid.uuid4())[:8]
+        
+        async for event in agent.run(
+            task_id=task_id,
+            content=full_content,
+            course_id=request.course_id,
+            strategies=request.strategies,
+        ):
+            yield event.to_sse()
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@router.get("/agent/skills")
+async def list_agent_skills():
+    """列出 Agent 可用的 Skills"""
+    agent = RAGOptimizerAgent()
+    return {"skills": agent.skills}

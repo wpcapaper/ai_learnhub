@@ -1,22 +1,13 @@
-/**
- * 首页 - 课程管理
- * 
- * 显示所有课程列表，支持转换操作和质量查看
- */
-
 'use client';
 
 import { useState, useEffect } from 'react';
-import { adminApi, Course, QualityReport } from '@/lib/api';
+import { adminApi, Course } from '@/lib/api';
 
-export default function HomePage() {
+export default function CoursesPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [converting, setConverting] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
-  const [qualityReport, setQualityReport] = useState<QualityReport | null>(null);
 
-  // 加载课程列表
   useEffect(() => {
     loadCourses();
   }, []);
@@ -30,223 +21,264 @@ export default function HomePage() {
     setLoading(false);
   };
 
-  // 触发课程转换
   const handleConvert = async () => {
     setConverting(true);
     const response = await adminApi.convertCourses();
     setConverting(false);
     
     if (response.success) {
-      alert('课程转换完成！');
       loadCourses();
     } else {
       alert(`转换失败: ${response.error}`);
     }
   };
 
-  // 查看质量报告
-  const handleViewQuality = async (courseId: string) => {
-    setSelectedCourse(courseId);
-    const response = await adminApi.getQualityReport(courseId);
-    if (response.success && response.data) {
-      setQualityReport(response.data);
-    } else {
-      setQualityReport(null);
-    }
+  const stats = {
+    total: courses.length,
+    chapters: courses.reduce((sum, c) => sum + (c.chapters?.length || 0), 0),
+    avgQuality: courses.filter(c => c.quality_score).length > 0
+      ? Math.round(courses.filter(c => c.quality_score).reduce((sum, c) => sum + (c.quality_score || 0), 0) / courses.filter(c => c.quality_score).length)
+      : 0,
+    evaluated: courses.filter(c => c.quality_score).length,
   };
 
   if (loading) {
-    return (
-      <div className="terminal">
-        <div className="terminal-line terminal-dim">
-          正在加载课程数据<span className="loading-dots"></span>
-        </div>
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   return (
-    <div className="space-y-6">
-      {/* 标题和操作 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-green-400 font-mono">
-            &gt;_ 课程管理
-          </h1>
-          <p className="text-gray-500 text-sm mt-1 font-mono">
-            管理课程转换和质量评估
-          </p>
+    <div className="p-8">
+      {/* 页面头部 */}
+      <div className="mb-8">
+        <div className="flex items-center gap-2 text-[11px] text-[#71717a] mb-2">
+          <span>知识库</span>
+          <svg style={{width: '12px', height: '12px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          <span className="text-[#a1a1aa]">课程管理</span>
         </div>
-        <button
-          onClick={handleConvert}
-          disabled={converting}
-          className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-gray-600 
-                     text-black font-mono text-sm rounded transition-colors"
-        >
-          {converting ? '转换中...' : '[转换课程]'}
-        </button>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-[#fafafa] mb-1">课程管理</h1>
+            <p className="text-sm text-[#71717a]">管理课程内容转换与 RAG 索引优化</p>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={loadCourses} className="btn btn-secondary">
+              <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              刷新
+            </button>
+            <button onClick={handleConvert} disabled={converting} className="btn btn-primary">
+              {converting ? (
+                <>
+                  <svg style={{width: '14px', height: '14px'}} className="icon-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  转换中...
+                </>
+              ) : (
+                <>
+                  <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                  </svg>
+                  转换课程
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 统计卡片 */}
+      <div className="grid grid-cols-4 gap-4 mb-8">
+        <StatCard label="总课程" value={stats.total} icon="book" gradient />
+        <StatCard label="总章节" value={stats.chapters} icon="folder" />
+        <StatCard label="平均质量" value={stats.avgQuality || '-'} icon="chart" highlight={stats.avgQuality >= 80} />
+        <StatCard label="已评估" value={`${stats.evaluated}/${stats.total}`} icon="check" />
       </div>
 
       {/* 课程列表 */}
-      <div className="terminal">
-        <div className="terminal-line text-cyan-400 mb-4">
-          === 课程列表 ({courses.length}) ===
-        </div>
-        
-        {courses.length === 0 ? (
-          <div className="terminal-line terminal-dim">
-            暂无课程数据。请先运行课程转换。
-          </div>
-        ) : (
-          <table className="terminal-table w-full">
-            <thead>
-              <tr>
-                <th>课程代码</th>
-                <th>课程名称</th>
-                <th>章节数</th>
-                <th>质量评分</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {courses.map((course) => (
-                <tr key={course.id}>
-                  <td className="text-cyan-400">{course.code}</td>
-                  <td>{course.title}</td>
-                  <td>{course.chapters?.length || 0}</td>
-                  <td>
-                    {course.quality_score !== undefined ? (
-                      <span className={
-                        course.quality_score >= 80 ? 'text-green-400' :
-                        course.quality_score >= 60 ? 'text-yellow-400' : 'text-red-400'
-                      }>
-                        {course.quality_score}
-                      </span>
-                    ) : '-'}
-                  </td>
-                  <td>
-                    <button
-                      onClick={() => handleViewQuality(course.id)}
-                      className="text-cyan-400 hover:text-cyan-300 mr-4"
-                    >
-                      [质量报告]
-                    </button>
-                    <a 
-                      href={`/rag-test?course=${course.id}`}
-                      className="text-green-400 hover:text-green-300"
-                    >
-                      [RAG测试]
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-
-      {/* 质量报告弹窗 */}
-      {qualityReport && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
-          <div className="terminal max-w-4xl w-full max-h-[80vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <div className="text-cyan-400 text-lg">
-                === 质量评估报告 ===
-              </div>
-              <button
-                onClick={() => setQualityReport(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                [关闭]
-              </button>
-            </div>
-            
-            <div className="space-y-4">
-              {/* 总体评分 */}
-              <div className="metric-card">
-                <div className="metric-label">总体评分</div>
-                <div className={`metric-value ${
-                  qualityReport.overall_score >= 80 ? 'text-green-400' :
-                  qualityReport.overall_score >= 60 ? 'text-yellow-400' : 'text-red-400'
-                }`}>
-                  {qualityReport.overall_score}/100
-                </div>
-              </div>
-
-              {/* 问题统计 */}
-              <div className="grid grid-cols-4 gap-4">
-                <div className="metric-card">
-                  <div className="metric-label">严重</div>
-                  <div className="text-red-400 text-xl">{qualityReport.critical_issues}</div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-label">高</div>
-                  <div className="text-orange-400 text-xl">{qualityReport.high_issues}</div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-label">中</div>
-                  <div className="text-yellow-400 text-xl">{qualityReport.medium_issues}</div>
-                </div>
-                <div className="metric-card">
-                  <div className="metric-label">低</div>
-                  <div className="text-gray-400 text-xl">{qualityReport.low_issues}</div>
-                </div>
-              </div>
-
-              {/* 总结 */}
-              <div className="terminal-line terminal-dim border-t border-gray-700 pt-4">
-                {qualityReport.summary}
-              </div>
-
-              {/* 问题列表 */}
-              {qualityReport.issues.length > 0 && (
-                <div className="space-y-2">
-                  <div className="text-cyan-400">发现问题：</div>
-                  {qualityReport.issues.slice(0, 10).map((issue) => (
-                    <div key={issue.issue_id} className="border-l-2 border-gray-600 pl-4 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs px-2 py-0.5 rounded ${
-                          issue.severity === 'critical' ? 'bg-red-900 text-red-300' :
-                          issue.severity === 'high' ? 'bg-orange-900 text-orange-300' :
-                          issue.severity === 'medium' ? 'bg-yellow-900 text-yellow-300' :
-                          'bg-gray-700 text-gray-300'
-                        }`}>
-                          {issue.severity.toUpperCase()}
-                        </span>
-                        <span className="text-gray-400 text-xs">{issue.issue_type}</span>
-                      </div>
-                      <div className="text-white mt-1">{issue.title}</div>
-                      <div className="text-gray-500 text-sm mt-1">{issue.description}</div>
-                      {issue.suggestion && (
-                        <div className="text-cyan-400 text-sm mt-1">
-                          建议: {issue.suggestion}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {qualityReport.issues.length > 10 && (
-                    <div className="text-gray-500 text-sm">
-                      ... 还有 {qualityReport.issues.length - 10} 个问题
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 建议 */}
-              {qualityReport.recommendations.length > 0 && (
-                <div className="space-y-2 border-t border-gray-700 pt-4">
-                  <div className="text-yellow-400">整体建议：</div>
-                  <ul className="list-disc list-inside text-gray-400">
-                    {qualityReport.recommendations.map((rec, i) => (
-                      <li key={i}>{rec}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
+      {courses.length === 0 ? (
+        <EmptyState onConvert={handleConvert} converting={converting} />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          {courses.map(course => (
+            <CourseCard key={course.id} course={course} />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function LoadingSkeleton() {
+  return (
+    <div className="p-8">
+      <div className="animate-pulse">
+        <div className="h-6 w-32 bg-[rgba(255,255,255,0.05)] rounded mb-2" />
+        <div className="h-4 w-48 bg-[rgba(255,255,255,0.03)] rounded mb-8" />
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="h-24 bg-[rgba(255,255,255,0.03)] rounded-xl" />
+          ))}
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          {[1, 2, 3].map(i => (
+            <div key={i} className="h-40 bg-[rgba(255,255,255,0.03)] rounded-xl" />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, icon, gradient, highlight }: { 
+  label: string; 
+  value: string | number; 
+  icon: string;
+  gradient?: boolean;
+  highlight?: boolean;
+}) {
+  const icons: Record<string, React.ReactNode> = {
+    book: (
+      <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+      </svg>
+    ),
+    folder: (
+      <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+      </svg>
+    ),
+    chart: (
+      <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    ),
+    check: (
+      <svg style={{width: '16px', height: '16px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+    ),
+  };
+
+  return (
+    <div className={`metric-card ${gradient ? 'bg-gradient-to-br from-[#18181b] to-[rgba(139,92,246,0.08)]' : ''}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div className={`p-2 rounded-lg ${gradient ? 'bg-[rgba(139,92,246,0.15)] text-[#a78bfa]' : 'bg-[rgba(255,255,255,0.05)] text-[#71717a]'}`}>
+          {icons[icon]}
+        </div>
+      </div>
+      <div className="metric-label">{label}</div>
+      <div className={`metric-value ${gradient ? 'gradient-text' : ''} ${highlight ? 'text-[#4ade80]' : ''}`}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function EmptyState({ onConvert, converting }: { onConvert: () => void; converting: boolean }) {
+  return (
+    <div className="card p-12 text-center">
+      <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-[rgba(139,92,246,0.2)] to-[rgba(6,182,212,0.1)] flex items-center justify-center">
+        <svg style={{width: '28px', height: '28px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5} className="text-[#a78bfa]">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+        </svg>
+      </div>
+      <h3 className="text-lg font-medium text-[#fafafa] mb-2">暂无课程数据</h3>
+      <p className="text-sm text-[#71717a] mb-6 max-w-xs mx-auto">
+        点击下方按钮导入课程内容，开始构建知识库
+      </p>
+      <button onClick={onConvert} disabled={converting} className="btn btn-primary">
+        {converting ? '转换中...' : (
+          <>
+            <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            导入课程
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
+function CourseCard({ course }: { course: Course }) {
+  const score = course.quality_score;
+  const hasScore = score !== undefined && score !== null;
+  const scoreLevel = hasScore ? (score! >= 80 ? 'high' : score! >= 60 ? 'medium' : 'low') : 'none';
+  
+  const scoreColors = {
+    high: { text: 'text-[#4ade80]', bg: 'bg-[rgba(34,197,94,0.1)]', border: 'border-[rgba(34,197,94,0.2)]' },
+    medium: { text: 'text-[#fbbf24]', bg: 'bg-[rgba(245,158,11,0.1)]', border: 'border-[rgba(245,158,11,0.2)]' },
+    low: { text: 'text-[#f87171]', bg: 'bg-[rgba(239,68,68,0.1)]', border: 'border-[rgba(239,68,68,0.2)]' },
+    none: { text: 'text-[#71717a]', bg: 'bg-[rgba(255,255,255,0.03)]', border: 'border-transparent' },
+  };
+
+  return (
+    <div className="card card-glow p-5 group">
+      {/* 头部 */}
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-[rgba(139,92,246,0.1)] text-[#a78bfa] border border-[rgba(139,92,246,0.2)]">
+              {course.code}
+            </span>
+            {hasScore && (
+              <span className={`tag ${score! >= 80 ? 'tag-success' : score! >= 60 ? 'tag-warning' : 'tag-error'}`}>
+                已评估
+              </span>
+            )}
+          </div>
+          <h3 className="text-[15px] font-medium text-[#fafafa] truncate">{course.title}</h3>
+        </div>
+        
+        {/* 质量分数 */}
+        <div className={`flex flex-col items-end px-3 py-1.5 rounded-lg ${scoreColors[scoreLevel].bg} ${scoreColors[scoreLevel].border} border ml-3`}>
+          <span className={`text-xl font-bold ${scoreColors[scoreLevel].text}`}>
+            {hasScore ? score : '-'}
+          </span>
+          <span className="text-[9px] text-[#71717a] uppercase tracking-wider">质量分</span>
+        </div>
+      </div>
+
+      {/* 描述 */}
+      <p className="text-xs text-[#71717a] line-clamp-2 mb-4 min-h-[32px]">
+        {course.description || '暂无描述'}
+      </p>
+
+      {/* 章节信息 */}
+      <div className="flex items-center gap-4 text-xs text-[#71717a] mb-4 pb-4 border-b border-[rgba(255,255,255,0.06)]">
+        <span className="flex items-center gap-1.5">
+          <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          {course.chapters?.length || 0} 章节
+        </span>
+      </div>
+
+      {/* 操作按钮 */}
+      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <a 
+          href={`/optimization?course=${course.id}`} 
+          className="btn btn-secondary flex-1 text-xs"
+        >
+          <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+          RAG 优化
+        </a>
+        <a 
+          href={`/evaluation?course=${course.id}`} 
+          className="btn btn-ghost flex-1 text-xs"
+        >
+          <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+          查看报告
+        </a>
+      </div>
     </div>
   );
 }
