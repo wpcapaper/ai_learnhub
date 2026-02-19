@@ -18,6 +18,7 @@ from .models import (
     QualityReport,
     QualityIssue,
     ConversionResult,
+    SourceFile,
 )
 from .pipeline import CoursePipeline
 
@@ -29,4 +30,5 @@ __all__ = [
     "QualityIssue",
     "ConversionResult",
     "CoursePipeline",
+    "SourceFile",
 ]

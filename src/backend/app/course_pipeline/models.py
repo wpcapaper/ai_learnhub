@@ -40,18 +40,20 @@ class ContentType(Enum):
 @dataclass
 class SourceFile:
     """源文件信息"""
-    path: str                           # 文件相对路径
+    path: str                           # 文件绝对路径
     content_type: ContentType           # 内容类型
     size: int = 0                       # 文件大小（字节）
     modified_time: Optional[datetime] = None  # 修改时间
+    relative_path: str = ""             # 相对于课程目录的路径（不含文件名）
     
     @classmethod
-    def from_path(cls, path: str) -> "SourceFile":
+    def from_path(cls, path: str, course_dir: Optional[str] = None) -> "SourceFile":
         """从文件路径创建源文件信息"""
         import os
         from pathlib import Path
         
-        ext = Path(path).suffix.lower()
+        file_path = Path(path)
+        ext = file_path.suffix.lower()
         content_type_map = {
             ".md": ContentType.MARKDOWN,
             ".ipynb": ContentType.IPYNB,
@@ -68,11 +70,21 @@ class SourceFile:
             size = 0
             modified_time = None
         
+        relative_path = ""
+        if course_dir:
+            try:
+                rel = file_path.relative_to(course_dir)
+                if len(rel.parts) > 1:
+                    relative_path = str(Path(*rel.parts[:-1]))
+            except ValueError:
+                pass
+        
         return cls(
             path=path,
             content_type=content_type,
             size=size,
-            modified_time=modified_time
+            modified_time=modified_time,
+            relative_path=relative_path
         )
 
 

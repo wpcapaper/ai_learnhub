@@ -281,12 +281,10 @@ class QualityEvaluator:
                     ))
     
     def _check_format(self, context: EvaluationContext, report: QualityReport):
-        """检查格式规范"""
         for chapter in context.chapters:
             content = chapter.content
             
-            # 检查标题层级跳跃（如从H1直接跳到H3）
-            heading_levels = [int(h[1]) for h in re.findall(r'^#{1,6}', content, re.MULTILINE)]
+            heading_levels = [len(h) for h in re.findall(r'^#{1,6}', content, re.MULTILINE)]
             for i in range(len(heading_levels) - 1):
                 if heading_levels[i+1] - heading_levels[i] > 1:
                     report.add_issue(QualityIssue(

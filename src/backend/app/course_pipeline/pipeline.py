@@ -224,6 +224,27 @@ class CoursePipeline:
         
         return courses
     
+    def _copy_assets(self, source_dir: str, output_dir: Path) -> int:
+        source_path = Path(source_dir)
+        copied_count = 0
+        image_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.bmp', '.ico'}
+        
+        for file_path in source_path.rglob('*'):
+            if not file_path.is_file():
+                continue
+            if file_path.suffix.lower() not in image_extensions:
+                continue
+            if '.ipynb_checkpoints' in str(file_path) or file_path.name.startswith('.'):
+                continue
+            
+            rel_path = file_path.relative_to(source_path)
+            dest_path = output_dir / rel_path
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_path, dest_path)
+            copied_count += 1
+        
+        return copied_count
+    
     def convert_course(self, raw_course: RawCourse) -> ConversionResult:
         """
         转换单个课程
@@ -240,6 +261,9 @@ class CoursePipeline:
             # 1. 创建输出目录
             output_dir = self.courses_dir / raw_course.course_id
             output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # 1.5 复制图片等资源文件
+            self._copy_assets(raw_course.source_dir, output_dir)
             
             # 2. 转换所有源文件
             all_chapters = []

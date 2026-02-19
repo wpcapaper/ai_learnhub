@@ -58,10 +58,12 @@ class IPynbConverter(BaseConverter):
         
         处理策略：
         1. Markdown单元格 → 直接转换为Markdown文本
-        2. Code单元格 → 带语言标记的代码块，并添加执行说明
-        3. 输出单元格 → 作为代码执行结果展示
+        2. Code单元格 → 带语言标记的代码块（固定为python）
+        3. 输出文件保持原子目录结构
         """
         chapters = []
+        source_path = Path(source_file.path)
+        source_stem = source_path.stem
         
         try:
             with open(source_file.path, 'r', encoding='utf-8') as f:
@@ -70,91 +72,33 @@ class IPynbConverter(BaseConverter):
             print(f"读取 ipynb 文件失败: {source_file.path}, 错误: {e}")
             return chapters
         
-        # 获取 notebook 元数据
-        nb_metadata = notebook.get('metadata', {})
-        language_info = nb_metadata.get('language_info', {})
-        default_language = language_info.get('name', 'python')
-        
-        # 获取所有单元格
         cells = notebook.get('cells', [])
         
-        # 按标题分割章节（如果notebook中有标题单元格）
-        current_chapter_content = []
-        current_chapter_title = self._extract_title(notebook) or "notebook 内容"
-        chapter_start_idx = 0
-        
-        for idx, cell in enumerate(cells):
+        all_content = []
+        for cell in cells:
             cell_type = cell.get('cell_type', '')
             source = cell.get('source', [])
+            source_text = ''.join(source) if isinstance(source, list) else source
             
-            # 确保 source 是字符串
-            if isinstance(source, list):
-                source_text = ''.join(source)
-            else:
-                source_text = source
-            
-            # 检查是否是标题单元格（Markdown中的#标题）
             if cell_type == 'markdown':
-                heading_match = re.match(r'^#+\s+(.+)$', source_text.strip(), re.MULTILINE)
-                if heading_match:
-                    heading_text = heading_match.group(1).strip()
-                    # 检查是否是一级标题（新章节）
-                    if source_text.strip().startswith('# '):
-                        # 保存之前的章节
-                        if current_chapter_content:
-                            chapter_content = '\n\n'.join(current_chapter_content)
-                            chapters.append(Chapter(
-                                title=current_chapter_title,
-                                content=chapter_content,
-                                file_name=self._generate_filename(current_chapter_title, chapter_start_idx),
-                                sort_order=chapter_start_idx,
-                                source_file=source_file.path,
-                                word_count=len(chapter_content)
-                            ))
-                        
-                        # 开始新章节
-                        current_chapter_title = heading_text
-                        current_chapter_content = [source_text]
-                        chapter_start_idx = idx
-                        continue
-                
-                current_chapter_content.append(source_text)
-            
+                all_content.append(source_text)
             elif cell_type == 'code':
-                # 处理代码单元格
-                code_block = self._format_code_cell(source_text, cell, default_language)
-                current_chapter_content.append(code_block)
+                all_content.append(self._format_code_cell(source_text, cell))
         
-        # 添加最后一个章节
-        if current_chapter_content:
-            chapter_content = '\n\n'.join(current_chapter_content)
-            chapters.append(Chapter(
-                title=current_chapter_title,
-                content=chapter_content,
-                file_name=self._generate_filename(current_chapter_title, chapter_start_idx),
-                sort_order=chapter_start_idx,
-                source_file=source_file.path,
-                word_count=len(chapter_content)
-            ))
-        
-        # 如果没有分章节，将整个notebook作为一个章节
-        if not chapters and cells:
-            all_content = []
-            for cell in cells:
-                cell_type = cell.get('cell_type', '')
-                source = cell.get('source', [])
-                source_text = ''.join(source) if isinstance(source, list) else source
-                
-                if cell_type == 'markdown':
-                    all_content.append(source_text)
-                elif cell_type == 'code':
-                    all_content.append(self._format_code_cell(source_text, cell, default_language))
-            
+        if all_content:
             content = '\n\n'.join(all_content)
+            
+            # 保持子目录结构
+            relative_path = source_file.relative_path or ""
+            if relative_path:
+                file_name = f"{relative_path}/{source_stem}.md"
+            else:
+                file_name = f"{source_stem}.md"
+            
             chapters.append(Chapter(
-                title=self._extract_title(notebook) or Path(source_file.path).stem,
+                title=source_stem,
                 content=content,
-                file_name=f"{Path(source_file.path).stem}.md",
+                file_name=file_name,
                 sort_order=0,
                 source_file=source_file.path,
                 word_count=len(content)
@@ -164,7 +108,6 @@ class IPynbConverter(BaseConverter):
     
     def _extract_title(self, notebook: Dict[str, Any]) -> Optional[str]:
         """从 notebook 中提取标题"""
-        # 尝试从第一个单元格提取标题
         cells = notebook.get('cells', [])
         for cell in cells:
             if cell.get('cell_type') == 'markdown':
@@ -176,49 +119,13 @@ class IPynbConverter(BaseConverter):
                     return match.group(1).strip()
         return None
     
-    def _format_code_cell(self, code: str, cell: Dict[str, Any], language: str) -> str:
-        """
-        格式化代码单元格
-        
-        将代码和输出转换为带注释的Markdown格式
-        """
+    def _format_code_cell(self, code: str, cell: Dict[str, Any]) -> str:
+        """格式化代码单元格，固定使用python语言标记"""
         parts = []
         
-        # 添加代码块
         if code.strip():
-            # 清理代码中的魔法命令提示
             cleaned_code = self._clean_magic_commands(code)
-            parts.append(f"```{language}\n{cleaned_code}\n```")
-        
-        # 添加输出（如果有）
-        outputs = cell.get('outputs', [])
-        if outputs:
-            output_parts = []
-            for output in outputs:
-                output_type = output.get('output_type', '')
-                
-                if output_type == 'stream':
-                    text = ''.join(output.get('text', []))
-                    if text.strip():
-                        output_parts.append(text)
-                
-                elif output_type == 'execute_result':
-                    data = output.get('data', {})
-                    # 优先使用文本输出
-                    if 'text/plain' in data:
-                        output_parts.append(data['text/plain'])
-                    # 如果有图片，添加图片标记
-                    elif 'image/png' in data:
-                        output_parts.append("\n*[执行结果包含图片]*\n")
-                
-                elif output_type == 'error':
-                    ename = output.get('ename', 'Error')
-                    evalue = output.get('evalue', '')
-                    output_parts.append(f"```\n{ename}: {evalue}\n```")
-            
-            if output_parts:
-                output_text = '\n'.join(output_parts)
-                parts.append(f"\n**执行结果：**\n\n{output_text}")
+            parts.append(f"```python\n{cleaned_code}\n```")
         
         return '\n'.join(parts)
     
@@ -242,15 +149,6 @@ class IPynbConverter(BaseConverter):
                 cleaned_lines.append(line)
         
         return '\n'.join(cleaned_lines)
-    
-    def _generate_filename(self, title: str, index: int) -> str:
-        """生成章节文件名"""
-        # 清理标题中的特殊字符
-        safe_title = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', title)
-        safe_title = re.sub(r'\s+', '_', safe_title.strip())
-        
-        # 添加序号前缀
-        return f"{index:02d}_{safe_title[:50]}.md"
 
 
 class MarkdownConverter(BaseConverter):

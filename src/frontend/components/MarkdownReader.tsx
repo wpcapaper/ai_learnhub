@@ -10,10 +10,29 @@ interface MarkdownReaderProps {
   content: string;
   onProgressChange?: (position: number, percentage: number) => void;
   variant?: 'document' | 'chat';
+  courseDirName?: string;
+  chapterPath?: string;
 }
 
-export default function MarkdownReader({ content, onProgressChange, variant = 'document' }: MarkdownReaderProps) {
+export default function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }: MarkdownReaderProps) {
   const contentRef = useRef<HTMLDivElement>(null);
+  
+  // 重写图片相对路径为完整 URL
+  const rewriteImageUrl = (src: string): string => {
+    // 跳过网络图片和绝对路径
+    if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
+      return src;
+    }
+    // 缺少课程目录名或章节路径则返回原路径
+    if (!courseDirName || !chapterPath) {
+      return src;
+    }
+    // 计算章节所在目录
+    const chapterDir = chapterPath.includes('/') ? chapterPath.substring(0, chapterPath.lastIndexOf('/')) : '';
+    // 拼接：课程目录/章节目录/图片相对路径
+    const basePath = chapterDir ? `${courseDirName}/${chapterDir}` : courseDirName;
+    return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/courses/${basePath}/${src}`;
+  };
 
   // 跟踪滚动位置和阅读进度
   const handleScroll = () => {
@@ -117,7 +136,14 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
           ),
           // 自定义链接样式
           a: ({ href, children }) => <a href={href} className="text-indigo-600 hover:text-indigo-800 underline">{children}</a>,
-          // 自定义引用样式
+          img: ({ src, alt }) => (
+            <img 
+              src={rewriteImageUrl(typeof src === 'string' ? src : '')} 
+              alt={alt || ''} 
+              className="max-w-full h-auto rounded-lg my-4"
+              loading="lazy"
+            />
+          ),
           blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic my-4 text-slate-600">{children}</blockquote>,
           // 表格样式支持
           table: ({ children }) => (

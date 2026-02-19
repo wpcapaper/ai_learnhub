@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.api import users, review, quiz, exam, courses, question_sets, mistakes, learning
+from pathlib import Path
 
 
 def _check_rag_configured() -> bool:
@@ -88,6 +90,15 @@ if RAG_AVAILABLE and rag:
 # Admin 路由（弱依赖）
 if ADMIN_AVAILABLE and admin:
     app.include_router(admin.router, prefix="/api", tags=["Admin"])
+
+# 挂载 courses 目录为静态文件服务，用于课程图片等资源访问
+# Docker 环境中 courses 目录挂载在 /app/courses
+courses_path = Path("/app/courses")
+if not courses_path.exists():
+    # 本地开发环境
+    courses_path = Path(__file__).parent.parent.parent.parent / "courses"
+if courses_path.exists():
+    app.mount("/courses", StaticFiles(directory=str(courses_path)), name="courses")
 
 
 @app.get("/")

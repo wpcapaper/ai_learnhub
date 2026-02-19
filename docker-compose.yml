@@ -17,6 +17,8 @@ services:
     volumes:
       - ./src/backend/data:/app/data
       - ./src/backend/app:/app/app
+      - ./courses:/app/courses
+      - ./raw_courses:/app/raw_courses
     depends_on:
       - redis
       - langfuse

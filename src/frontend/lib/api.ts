@@ -44,6 +44,9 @@ export interface ChapterContent {
   title: string;
   content_markdown: string;
   sort_order: number;
+  course_code?: string;
+  course_dir_name?: string;
+  file_path?: string;
   user_progress?: UserProgress;
 }
 

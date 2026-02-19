@@ -2,11 +2,21 @@
 学习课程服务
 """
 import uuid
+import json
 from datetime import datetime
 from typing import List, Optional, Dict
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.models import Course, Chapter, ReadingProgress, Conversation, Message
+
+
+# 获取 courses 目录路径（支持 Docker 和本地环境）
+def _get_courses_dir() -> Path:
+    docker_path = Path("/app/courses")
+    if docker_path.exists():
+        return docker_path
+    return Path(__file__).parent.parent.parent.parent.parent / "courses"
 
 
 class LearningService:
@@ -69,12 +79,48 @@ class LearningService:
         if not chapter:
             raise ValueError(f"章节 {chapter_id} 不存在")
 
+        # 查询课程信息，获取 course.code
+        course = db.query(Course).filter(Course.id == chapter.course_id).first()
+        course_code = course.code if course else ""
+
+        # 查找课程目录名（course_code 可能与目录名不同）
+        course_dir_name = ""
+        file_path = ""
+        courses_dir = _get_courses_dir()
+        
+        # 遍历 courses 目录，找到包含匹配 course.json 的目录
+        if courses_dir.exists():
+            for course_dir in courses_dir.iterdir():
+                if not course_dir.is_dir():
+                    continue
+                course_json_path = course_dir / "course.json"
+                if not course_json_path.exists():
+                    continue
+                try:
+                    with open(course_json_path, 'r', encoding='utf-8') as f:
+                        course_json = json.load(f)
+                    # 根据 code 匹配
+                    if course_json.get("code") == course_code:
+                        course_dir_name = course_dir.name
+                        # 同时读取章节文件路径
+                        chapters_info = course_json.get("chapters", [])
+                        for ch_info in chapters_info:
+                            if ch_info.get("sort_order") == chapter.sort_order:
+                                file_path = ch_info.get("file", "")
+                                break
+                        break
+                except:
+                    pass
+
         result = {
             "id": chapter.id,
             "course_id": chapter.course_id,
             "title": chapter.title,
             "content_markdown": chapter.content_markdown,
             "sort_order": chapter.sort_order,
+            "course_code": course_code,
+            "course_dir_name": course_dir_name,
+            "file_path": file_path,
         }
 
         # 如果提供了用户 ID，查询用户的阅读进度

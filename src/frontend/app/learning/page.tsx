@@ -226,6 +226,8 @@ function LearningPageContent() {
                 <MarkdownReader
                   content={currentChapter.content_markdown}
                   onProgressChange={handleProgressChange}
+                  courseDirName={currentChapter.course_dir_name}
+                  chapterPath={currentChapter.file_path}
                 />
               </div>
             )}
