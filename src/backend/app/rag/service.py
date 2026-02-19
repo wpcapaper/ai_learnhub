@@ -1,6 +1,7 @@
 from typing import List, Dict, Any, Optional
 import os
 import yaml
+import logging
 
 from .chunking import (
     SemanticChunkingStrategy,
@@ -9,8 +10,18 @@ from .chunking import (
 )
 from .embedding import EmbeddingModelFactory, EmbeddingModel
 from .vector_store import ChromaVectorStore
-from .retrieval import RAGRetriever, RetrievalResult, HybridRetriever
+from .retrieval import RAGRetriever, RetrievalResult, HybridRetriever, Reranker
 from .multilingual import LanguageDetector, QueryExpander
+
+logger = logging.getLogger(__name__)
+
+
+class RetrievalMode:
+    """检索模式枚举"""
+    VECTOR = "vector"          # 纯向量检索
+    KEYWORD = "keyword"        # 纯关键词检索
+    HYBRID = "hybrid"          # 混合检索（向量+关键词）
+    VECTOR_RERANK = "vector_rerank"  # 向量+重排序
 
 
 def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -72,6 +83,7 @@ class RAGService:
         
         # 延迟初始化的组件
         self._embedding_model: Optional[EmbeddingModel] = None
+        self._reranker: Optional[Reranker] = None
         self._query_expander: Optional[QueryExpander] = None
         self._language_detector: Optional[LanguageDetector] = None
         
@@ -91,8 +103,14 @@ class RAGService:
         # 检索配置
         retrieval_config = self._config.get("retrieval", {})
         self.default_top_k = retrieval_config.get("default_top_k", 5)
-        self.use_hybrid = False  # 暂不支持混合检索
-        self.hybrid_retriever = None
+        
+        # 检索模式: vector | hybrid | vector_rerank
+        # 默认使用纯向量检索，最简单
+        self.retrieval_mode = retrieval_config.get("mode", RetrievalMode.VECTOR)
+        
+        # 混合检索权重（仅hybrid模式使用）
+        self.vector_weight = retrieval_config.get("vector_weight", 0.7)
+        self.keyword_weight = retrieval_config.get("keyword_weight", 0.3)
     
     @property
     def embedding_model(self) -> EmbeddingModel:
@@ -101,6 +119,45 @@ class RAGService:
             embedding_config = self._config.get("embedding", {})
             self._embedding_model = EmbeddingModelFactory.create_from_config(embedding_config)
         return self._embedding_model
+    
+    @property
+    def reranker(self) -> Optional[Reranker]:
+        """延迟初始化 Reranker（仅配置启用时创建）"""
+        if self._reranker is None:
+            rerank_config = self._config.get("rerank", {})
+            enabled = self._str_to_bool(rerank_config.get("enabled", "false"))
+            
+            if enabled:
+                provider = rerank_config.get("provider", "local")
+                if provider == "local":
+                    local_config = rerank_config.get("local", {})
+                    endpoint = local_config.get("endpoint", "")
+                    if endpoint:
+                        self._reranker = Reranker(
+                            endpoint=endpoint,
+                            timeout=local_config.get("timeout", 30)
+                        )
+                        logger.info(f"Reranker已启用: {endpoint}")
+                elif provider == "cohere":
+                    cohere_config = rerank_config.get("cohere", {})
+                    api_key = cohere_config.get("api_key", "")
+                    if api_key:
+                        self._reranker = Reranker(
+                            endpoint="https://api.cohere.ai/v1/rerank",
+                            api_key=api_key,
+                            timeout=30
+                        )
+                        logger.info("Reranker已启用: Cohere API")
+        
+        return self._reranker
+    
+    def _str_to_bool(self, value: Any) -> bool:
+        """字符串转布尔值"""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes")
+        return bool(value)
     
     @property
     def query_expander(self) -> Optional[QueryExpander]:
@@ -199,7 +256,8 @@ class RAGService:
         top_k: Optional[int] = None,
         filters: Optional[Dict[str, Any]] = None,
         score_threshold: float = 0.0,
-        use_expansion: Optional[bool] = None
+        use_expansion: Optional[bool] = None,
+        mode: Optional[str] = None
     ) -> List[RetrievalResult]:
         """
         检索与查询相关的课程内容
@@ -209,45 +267,145 @@ class RAGService:
             course_id: 课程 ID
             top_k: 返回结果数量，默认使用配置值
             filters: 元数据过滤条件
-            score_threshold: 相似度阈值（低于此值的结果会被过滤）
-            use_expansion: 是否启用查询扩展（None 表示使用默认设置）
+            score_threshold: 相似度阈值
+            use_expansion: 是否启用查询扩展
+            mode: 检索模式，覆盖配置值
         
         Returns:
             检索结果列表，按相似度降序排列
         """
         top_k = top_k or self.default_top_k
+        retrieval_mode = mode or self.retrieval_mode
         
-        # 查询扩展（生成多个查询变体以提升召回率）
-        queries = [query]
-        expander = self.query_expander
-        if use_expansion and expander:
-            queries = expander.expand(query, max_variants=3)
-        
-        # 获取检索器并执行检索
+        # 获取基础检索器
         retriever = self.get_retriever(course_id)
-        all_results = []
         
-        for q in queries:
-            results = await retriever.retrieve(
-                query=q,
-                course_id=course_id,
-                top_k=top_k * 2,  # 多检索一些用于后续去重
-                filters=filters,
-                score_threshold=score_threshold
-            )
-            all_results.extend(results)
+        # 根据模式执行检索
+        if retrieval_mode == RetrievalMode.VECTOR:
+            results = await self._vector_retrieve(retriever, query, top_k, filters, score_threshold)
         
-        # 按 chunk_id 去重
-        seen = set()
-        unique_results = []
-        for result in all_results:
-            if result.chunk_id not in seen:
-                seen.add(result.chunk_id)
-                unique_results.append(result)
+        elif retrieval_mode == RetrievalMode.VECTOR_RERANK:
+            results = await self._vector_rerank_retrieve(retriever, query, top_k, filters, score_threshold)
         
-        # 按相似度降序排序后返回 Top K
-        unique_results.sort(key=lambda x: x.score, reverse=True)
-        return unique_results[:top_k]
+        elif retrieval_mode == RetrievalMode.HYBRID:
+            results = await self._hybrid_retrieve(retriever, query, course_id, top_k, filters, score_threshold)
+        
+        else:
+            results = await self._vector_retrieve(retriever, query, top_k, filters, score_threshold)
+        
+        return results
+    
+    async def _vector_retrieve(
+        self,
+        retriever: RAGRetriever,
+        query: str,
+        top_k: int,
+        filters: Optional[Dict[str, Any]],
+        score_threshold: float
+    ) -> List[RetrievalResult]:
+        """纯向量检索"""
+        results = await retriever.retrieve(
+            query=query,
+            course_id="",
+            top_k=top_k,
+            filters=filters,
+            score_threshold=score_threshold
+        )
+        return results
+    
+    async def _vector_rerank_retrieve(
+        self,
+        retriever: RAGRetriever,
+        query: str,
+        top_k: int,
+        filters: Optional[Dict[str, Any]],
+        score_threshold: float
+    ) -> List[RetrievalResult]:
+        """向量检索 + Rerank重排序"""
+        reranker = self.reranker
+        
+        if reranker is None:
+            logger.debug("Rerank未配置，降级为纯向量检索")
+            return await self._vector_retrieve(retriever, query, top_k, filters, score_threshold)
+        
+        candidates = await retriever.retrieve(
+            query=query,
+            course_id="",
+            top_k=top_k * 3,
+            filters=filters,
+            score_threshold=score_threshold
+        )
+        
+        if not candidates:
+            return []
+        
+        reranked = reranker.rerank(query, candidates, top_k)
+        return reranked
+    
+    async def _hybrid_retrieve(
+        self,
+        retriever: RAGRetriever,
+        query: str,
+        course_id: str,
+        top_k: int,
+        filters: Optional[Dict[str, Any]],
+        score_threshold: float
+    ) -> List[RetrievalResult]:
+        """混合检索（向量+关键词）"""
+        vector_results = await retriever.retrieve(
+            query=query,
+            course_id="",
+            top_k=top_k * 2,
+            filters=filters,
+            score_threshold=score_threshold
+        )
+        
+        if not hasattr(self, '_keyword_retriever') or self._keyword_retriever is None:
+            logger.debug("关键词检索器未配置，降级为纯向量检索")
+            return vector_results[:top_k]
+        
+        keyword_results = await self._keyword_retriever.retrieve(
+            query=query,
+            course_id=course_id,
+            top_k=top_k * 2,
+            filters=filters
+        )
+        
+        merged = self._rrf_merge(vector_results, keyword_results, top_k)
+        return merged
+    
+    def _rrf_merge(
+        self,
+        vector_results: List[RetrievalResult],
+        keyword_results: List[RetrievalResult],
+        top_k: int,
+        k: int = 60
+    ) -> List[RetrievalResult]:
+        """Reciprocal Rank Fusion 融合"""
+        scores: Dict[str, float] = {}
+        result_map: Dict[str, RetrievalResult] = {}
+        
+        for rank, result in enumerate(vector_results):
+            rrf_score = self.vector_weight / (k + rank + 1)
+            scores[result.chunk_id] = scores.get(result.chunk_id, 0) + rrf_score
+            result_map[result.chunk_id] = result
+        
+        for rank, result in enumerate(keyword_results):
+            rrf_score = self.keyword_weight / (k + rank + 1)
+            scores[result.chunk_id] = scores.get(result.chunk_id, 0) + rrf_score
+            if result.chunk_id not in result_map:
+                result_map[result.chunk_id] = result
+        
+        for chunk_id, score in scores.items():
+            result_map[chunk_id].score = score
+        
+        sorted_results = sorted(
+            result_map.values(),
+            key=lambda x: x.score,
+            reverse=True
+        )
+        
+        return sorted_results[:top_k]
     
     def get_collection_size(self, course_id: str) -> int:
         """获取课程索引的 chunk 数量"""

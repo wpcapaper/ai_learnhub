@@ -14,15 +14,47 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api import users, review, quiz, exam, courses, question_sets, mistakes, learning
 
-# RAG 模块弱依赖：未安装依赖时跳过
+
+def _check_rag_configured() -> bool:
+    """检查RAG是否已配置（有必要的API Key或服务地址）"""
+    provider = os.getenv("RAG_EMBEDDING_PROVIDER", "openai")
+    
+    if provider == "openai":
+        return bool(os.getenv("RAG_OPENAI_API_KEY"))
+    elif provider == "local":
+        return bool(os.getenv("RAG_EMBEDDING_SERVICE_URL"))
+    elif provider == "custom":
+        return bool(os.getenv("RAG_EMBEDDING_ENDPOINT"))
+    
+    return bool(os.getenv("RAG_OPENAI_API_KEY"))
+
+
+def _check_admin_configured() -> bool:
+    """检查Admin模块是否可用"""
+    return True
+
+
 RAG_AVAILABLE = False
 rag = None
 try:
     from app.api import rag as rag_module
-    rag = rag_module
-    RAG_AVAILABLE = True
+    if _check_rag_configured():
+        rag = rag_module
+        RAG_AVAILABLE = True
+    else:
+        logger.info("RAG 模块未配置，相关接口不可用。请设置 OPENAI_API_KEY 或其他Embedding配置")
 except ImportError as e:
-    logger.warning(f"RAG 模块未加载，相关接口不可用: {e}")
+    logger.info(f"RAG 模块未安装，相关接口不可用: {e}")
+
+ADMIN_AVAILABLE = False
+admin = None
+try:
+    from app.api import admin as admin_module
+    if _check_admin_configured():
+        admin = admin_module
+        ADMIN_AVAILABLE = True
+except ImportError as e:
+    logger.info(f"Admin 模块未安装，相关接口不可用: {e}")
 
 app = FastAPI(
     title="AILearn Hub API",
@@ -53,6 +85,10 @@ app.include_router(learning.router, prefix="/api", tags=["学习课程"])
 if RAG_AVAILABLE and rag:
     app.include_router(rag.router, prefix="/api", tags=["RAG"])
 
+# Admin 路由（弱依赖）
+if ADMIN_AVAILABLE and admin:
+    app.include_router(admin.router, prefix="/api", tags=["Admin"])
+
 
 @app.get("/")
 async def root():
@@ -66,6 +102,7 @@ async def health():
     return {
         "status": "healthy",
         "rag_available": RAG_AVAILABLE,
+        "admin_available": ADMIN_AVAILABLE,
     }
 
 

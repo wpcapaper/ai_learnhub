@@ -198,7 +198,8 @@ class EmbeddingModelFactory:
                 "base_url": "https://api.openai.com/v1"
             },
             "local": {
-                "endpoint": "http://localhost:8001/embed",
+                "endpoint": "http://localhost:11434/api/embeddings",
+                "model": "nomic-embed-text",
                 "timeout": 30
             }
         }
@@ -207,9 +208,9 @@ class EmbeddingModelFactory:
         
         if provider == "openai":
             openai_config = config.get("openai", {})
-            api_key = openai_config.get("api_key") or os.getenv("OPENAI_API_KEY")
+            api_key = openai_config.get("api_key") or os.getenv("RAG_OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("OpenAI API Key 未配置，请设置 OPENAI_API_KEY 环境变量")
+                raise ValueError("RAG Embedding未配置，请设置 RAG_OPENAI_API_KEY 环境变量")
             
             return OpenAIEmbedder(
                 model=openai_config.get("model", "text-embedding-3-small"),
@@ -219,29 +220,29 @@ class EmbeddingModelFactory:
         
         elif provider == "local":
             local_config = config.get("local", {})
-            endpoint = local_config.get("endpoint") or os.getenv("EMBEDDING_SERVICE_URL")
+            endpoint = local_config.get("endpoint") or os.getenv("RAG_EMBEDDING_SERVICE_URL")
             if not endpoint:
-                raise ValueError("本地 Embedding 服务地址未配置，请设置 EMBEDDING_SERVICE_URL 环境变量")
+                raise ValueError("RAG本地Embedding服务地址未配置，请设置 RAG_EMBEDDING_SERVICE_URL 环境变量")
             
             return RemoteEmbedder(
                 endpoint=endpoint,
-                dimension=local_config.get("dimension", 1024),
-                model_name=local_config.get("model_name", "local-embedding"),
+                dimension=local_config.get("dimension", 768),
+                model_name=local_config.get("model", "local-embedding"),
                 timeout=local_config.get("timeout", 30),
             )
         
         elif provider == "custom":
             custom_config = config.get("custom", {})
-            endpoint = custom_config.get("endpoint") or os.getenv("EMBEDDING_ENDPOINT")
+            endpoint = custom_config.get("endpoint") or os.getenv("RAG_EMBEDDING_ENDPOINT")
             if not endpoint:
-                raise ValueError("自定义 Embedding 服务地址未配置，请设置 EMBEDDING_ENDPOINT 环境变量")
+                raise ValueError("RAG自定义Embedding服务地址未配置，请设置 RAG_EMBEDDING_ENDPOINT 环境变量")
             
             return RemoteEmbedder(
                 endpoint=endpoint,
                 dimension=custom_config.get("dimension", 1024),
                 model_name=custom_config.get("model_name", "custom-embedding"),
                 timeout=custom_config.get("timeout", 30),
-                api_key=custom_config.get("api_key") or os.getenv("EMBEDDING_API_KEY"),
+                api_key=custom_config.get("api_key") or os.getenv("RAG_EMBEDDING_API_KEY"),
             )
         
         else:

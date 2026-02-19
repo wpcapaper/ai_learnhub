@@ -92,12 +92,42 @@ class LLMClient(ABC):
         **kwargs
     ) -> ChatResponse:
         """
-        非流式聊天
+        非流式聊天（异步）
         
         Args:
             messages: 消息列表，格式为 [{"role": "user", "content": "..."}]
             model: 模型名称，为 None 时使用默认模型
             temperature: 温度参数，控制随机性
+            max_tokens: 最大生成 Token 数
+            **kwargs: 其他模型参数
+        
+        Returns:
+            ChatResponse 响应对象
+        
+        Raises:
+            LLMError: LLM 调用失败时抛出
+        """
+        pass
+    
+    @abstractmethod
+    def chat_sync(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> ChatResponse:
+        """
+        非流式聊天（同步）
+        
+        适用于后台任务、脚本等不需要异步的场景。
+        
+        Args:
+            messages: 消息列表
+            model: 模型名称
+            temperature: 温度参数
             max_tokens: 最大生成 Token 数
             **kwargs: 其他模型参数
         

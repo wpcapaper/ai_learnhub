@@ -90,25 +90,11 @@ class OpenAIClient(LLMClient):
         **kwargs
     ) -> ChatResponse:
         """
-        非流式聊天
-        
-        Args:
-            messages: 消息列表
-            model: 模型名称
-            temperature: 温度参数
-            max_tokens: 最大 Token 数
-            **kwargs: 其他参数（如 top_p, presence_penalty 等）
-        
-        Returns:
-            ChatResponse 响应对象
-        
-        Raises:
-            LLMError: API 调用失败时抛出
+        非流式聊天（异步）
         """
         client = self._get_async_client()
         model = model or self._config.model
         
-        # 构建请求参数
         params = {
             "model": model,
             "messages": messages,
@@ -116,15 +102,10 @@ class OpenAIClient(LLMClient):
         }
         if max_tokens is not None:
             params["max_tokens"] = max_tokens
-        
-        # 添加其他参数
         params.update(kwargs)
         
         try:
-            # 调用 API
             response = await client.chat.completions.create(**params)
-            
-            # 构建响应
             return ChatResponse(
                 content=response.choices[0].message.content or "",
                 model=response.model,
@@ -135,7 +116,48 @@ class OpenAIClient(LLMClient):
                 } if response.usage else None,
                 finish_reason=response.choices[0].finish_reason,
             )
+        except Exception as e:
+            logger.error(f"LLM 调用失败: {e}")
+            raise LLMError(f"LLM 调用失败: {str(e)}", cause=e)
+    
+    def chat_sync(
+        self,
+        messages: List[Dict[str, str]],
+        *,
+        model: Optional[str] = None,
+        temperature: float = 0.7,
+        max_tokens: Optional[int] = None,
+        **kwargs
+    ) -> ChatResponse:
+        """
+        非流式聊天（同步）
         
+        适用于后台任务、脚本等不需要异步的场景。
+        """
+        client = self._get_sync_client()
+        model = model or self._config.model
+        
+        params = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        params.update(kwargs)
+        
+        try:
+            response = client.chat.completions.create(**params)
+            return ChatResponse(
+                content=response.choices[0].message.content or "",
+                model=response.model,
+                usage={
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                } if response.usage else None,
+                finish_reason=response.choices[0].finish_reason,
+            )
         except Exception as e:
             logger.error(f"LLM 调用失败: {e}")
             raise LLMError(f"LLM 调用失败: {str(e)}", cause=e)

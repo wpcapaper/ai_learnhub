@@ -1,0 +1,200 @@
+@import "tailwindcss";
+
+/* CLI 风格终端样式 */
+:root {
+  --terminal-bg: #0a0a0a;
+  --terminal-text: #00ff00;
+  --terminal-prompt: #00ffff;
+  --terminal-highlight: #ffff00;
+  --terminal-dim: #666666;
+  --terminal-error: #ff4444;
+  --terminal-success: #44ff44;
+  --terminal-warning: #ffaa00;
+}
+
+/* 终端容器 */
+.terminal {
+  background: var(--terminal-bg);
+  color: var(--terminal-text);
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 14px;
+  line-height: 1.6;
+  padding: 16px;
+  border-radius: 8px;
+  min-height: 400px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--terminal-dim) transparent;
+}
+
+.terminal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.terminal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal::-webkit-scrollbar-thumb {
+  background: var(--terminal-dim);
+  border-radius: 3px;
+}
+
+/* 终端行 */
+.terminal-line {
+  margin: 4px 0;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.terminal-prompt {
+  color: var(--terminal-prompt);
+  margin-right: 8px;
+}
+
+.terminal-input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--terminal-text);
+  font-family: inherit;
+  font-size: inherit;
+  width: calc(100% - 100px);
+  caret-color: var(--terminal-text);
+}
+
+/* 输出样式 */
+.terminal-output {
+  color: var(--terminal-text);
+}
+
+.terminal-success {
+  color: var(--terminal-success);
+}
+
+.terminal-error {
+  color: var(--terminal-error);
+}
+
+.terminal-warning {
+  color: var(--terminal-warning);
+}
+
+.terminal-dim {
+  color: var(--terminal-dim);
+}
+
+.terminal-highlight {
+  color: var(--terminal-highlight);
+}
+
+/* 表格样式 */
+.terminal-table {
+  border-collapse: collapse;
+  margin: 8px 0;
+}
+
+.terminal-table td,
+.terminal-table th {
+  padding: 4px 12px;
+  border: 1px solid var(--terminal-dim);
+}
+
+.terminal-table th {
+  color: var(--terminal-prompt);
+  text-align: left;
+}
+
+/* 进度条 */
+.progress-bar {
+  background: var(--terminal-dim);
+  height: 16px;
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-fill {
+  background: var(--terminal-success);
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
+/* 指标卡片 */
+.metric-card {
+  border: 1px solid var(--terminal-dim);
+  padding: 12px 16px;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+
+.metric-label {
+  color: var(--terminal-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.metric-value {
+  color: var(--terminal-highlight);
+  font-size: 24px;
+  font-weight: bold;
+}
+
+/* 动画光标 */
+.cursor-blink {
+  animation: blink 1s step-end infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* 加载动画 */
+.loading-dots::after {
+  content: '';
+  animation: dots 1.5s steps(4, end) infinite;
+}
+
+@keyframes dots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+/* 高亮代码块 */
+.code-block {
+  background: #1a1a1a;
+  border: 1px solid var(--terminal-dim);
+  border-radius: 4px;
+  padding: 12px;
+  margin: 8px 0;
+  overflow-x: auto;
+}
+
+/* 状态指示器 */
+.status-indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+
+.status-running {
+  background: var(--terminal-warning);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.status-success {
+  background: var(--terminal-success);
+}
+
+.status-error {
+  background: var(--terminal-error);
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

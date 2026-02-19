@@ -1,26 +1,34 @@
+# RAG配置 - 依赖已内置，只需配置API即可启用
+# 所有环境变量使用 RAG_ 前缀，与项目其他LLM用途区分
 embedding:
-  provider: "openai"
+  provider: "${RAG_EMBEDDING_PROVIDER:openai}"
   
   openai:
-    model: "text-embedding-3-small"
-    api_key: "${OPENAI_API_KEY}"
-    base_url: "${OPENAI_BASE_URL:-https://api.openai.com/v1}"
+    model: "${RAG_EMBEDDING_MODEL:text-embedding-3-small}"
+    api_key: "${RAG_OPENAI_API_KEY:}"
+    base_url: "${RAG_OPENAI_BASE_URL:https://api.openai.com/v1}"
   
   local:
-    endpoint: "${EMBEDDING_SERVICE_URL:-http://localhost:8001/embed}"
+    endpoint: "${RAG_EMBEDDING_SERVICE_URL:http://localhost:11434/api/embeddings}"
+    model: "${RAG_EMBEDDING_LOCAL_MODEL:nomic-embed-text}"
     timeout: 30
   
   custom:
-    endpoint: "${EMBEDDING_ENDPOINT}"
-    api_key: "${EMBEDDING_API_KEY:-}"
+    endpoint: "${RAG_EMBEDDING_ENDPOINT:}"
+    api_key: "${RAG_EMBEDDING_API_KEY:}"
     timeout: 30
 
+# Rerank配置（可选）
+# Ollama对rerank支持有限，建议使用独立服务或Cohere API
 rerank:
-  enabled: false
-  provider: "local"
+  enabled: "${RAG_RERANK_ENABLED:false}"
+  provider: "${RAG_RERANK_PROVIDER:local}"
   local:
-    endpoint: "${RERANK_SERVICE_URL:-http://localhost:8002/rerank}"
+    endpoint: "${RAG_RERANK_SERVICE_URL:http://localhost:8002/rerank}"
     timeout: 30
+  cohere:
+    api_key: "${RAG_RERANK_COHERE_API_KEY:}"
+    model: "${RAG_RERANK_MODEL:rerank-multilingual}"
 
 vector_store:
   type: "chroma"
@@ -36,6 +44,15 @@ chunking:
     chunk_size: 512
     overlap_size: 50
 
+# 检索配置
 retrieval:
   default_top_k: 5
   score_threshold: 0.0
+  # 检索模式: vector | vector_rerank | hybrid
+  # vector: 纯向量检索（默认，最简单）
+  # vector_rerank: 向量检索 + rerank重排序（需配置rerank）
+  # hybrid: 混合检索（向量+关键词，需额外配置）
+  mode: "${RAG_RETRIEVAL_MODE:vector}"
+  # 混合检索权重
+  vector_weight: 0.7
+  keyword_weight: 0.3

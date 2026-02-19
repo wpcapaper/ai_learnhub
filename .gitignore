@@ -165,11 +165,29 @@ scripts/data/output/*
 !/courses/python_basics/
 /courses/
 
-# macOS
-*.DS_Store
+# 原始课程
+/raw_courses/*
+!/raw_courses
+
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Docker volumes (named volumes 由 Docker 管理，此处仅为保险)
 redis_data/
 langfuse_db_data/
 clickhouse_data/
 clickhouse_logs/
+
+# ChromaDB 向量数据库（独立于业务数据库 app.db）
+# RAG数据完全独立存储，不纳入版本控制
+src/backend/data/chroma/
+**/chroma/
+*.chroma
+
+# RAG 优化报告（运行时生成）
+**/rag_optimization_report.json
+
+# 质量报告（运行时生成，可选提交）
+# **/quality_report.json
