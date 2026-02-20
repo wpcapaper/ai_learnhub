@@ -69,7 +69,7 @@ def _get_allowed_origins() -> list[str]:
     获取 CORS 允许的源列表
     
     从环境变量 ALLOWED_ORIGINS 读取，多个源用逗号分隔。
-    未设置时使用默认的本地开发源。
+    未设置时使用默认的本地开发源（支持所有本地端口）。
     """
     origins_str = os.getenv("ALLOWED_ORIGINS", "")
     if origins_str:
@@ -77,12 +77,13 @@ def _get_allowed_origins() -> list[str]:
         if origins:
             return origins
     
-    # 默认：本地开发环境
+    # 默认：本地开发环境 - 支持所有 localhost/127.0.0.1 端口
+    # 以及 Docker 内网 IP (172.x.x.x)
     return [
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8080",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://172.17.0.1",  # Docker 默认网关
+        "http://172.18.0.1",  # Docker compose 常用网段
     ]
 
 
