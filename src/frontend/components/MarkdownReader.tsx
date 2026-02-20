@@ -298,7 +298,7 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
               </div>
             );
           },
-h1: ({ children }) => {
+          h1: ({ children }) => {
             const id = generateHeadingId(children);
             return (
               <h1 id={id} style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
