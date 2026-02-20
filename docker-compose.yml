@@ -40,21 +40,19 @@ services:
       - langfuse
 
   frontend:
-    image: node:20-alpine
-    working_dir: /app
+    build:
+      context: ./src/frontend
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
+    image: ailearn-frontend:latest
     container_name: ailearn-frontend
     depends_on:
       - backend
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
-    volumes:
-      - ./src/frontend:/app
-      - /app/node_modules
-      - /app/.next
     environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
-    command: sh -c "npm install && npm run dev"
+      - NODE_ENV=production
 
   # ==================== 管理端 ====================
   admin-frontend:

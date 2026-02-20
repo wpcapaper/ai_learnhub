@@ -1,325 +1,249 @@
 'use client';
 
-import { useEffect, useState, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { apiClient, Question, User, Course } from '@/lib/api';
-import { normalizeOptions, isCorrectAnswer } from '@/lib/questionUtils';
-import Link from 'next/link';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { apiClient, Question, Course, User } from '@/lib/api';
 import LaTeXRenderer from '@/components/LaTeXRenderer';
-
-interface MistakesStats {
-  total_wrong: number;
-  wrong_by_course: Record<string, number>;
-  wrong_by_type: Record<string, number>;
-}
+import Link from 'next/link';
+import ThemeSelector from '@/components/ThemeSelector';
 
 function MistakesPageContent() {
   const searchParams = useSearchParams();
-  const courseId = searchParams.get('course_id') || undefined;
+  const router = useRouter();
+  const courseId = searchParams.get('course_id');
+
   const [user, setUser] = useState<User | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
   const [mistakes, setMistakes] = useState<Question[]>([]);
-  const [stats, setStats] = useState<MistakesStats | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const fetchData = async () => {
-    setLoading(true);
-    setError('');
-
-    try {
-      if (!user) return;
-
-      // Fetch mistakes and stats
-      const [mistakesData, statsData] = await Promise.all([
-        apiClient.getMistakes(user.id, courseId),
-        apiClient.getMistakesStats(user.id, courseId),
-      ]);
-
-      setMistakes(mistakesData);
-      setStats(statsData);
-    } catch (err) {
-      console.error('Failed to fetch mistakes:', err);
-      setError('加载错题数据失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [stats, setStats] = useState<{ total_wrong: number; wrong_by_type: Record<string, number> } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
-    const loadUser = async () => {
-      const savedUserId = localStorage.getItem('userId');
-      if (savedUserId) {
-        const userData = await apiClient.getUser(savedUserId);
-        setUser(userData);
-        fetchData();
-      }
+    const savedUserId = localStorage.getItem('userId');
+    if (savedUserId) {
+      apiClient.getUser(savedUserId).then(setUser);
+    } else {
+      router.push('/');
+    }
+  }, [router]);
 
-      if (courseId) {
-        const courseData = await apiClient.getCourse(courseId);
+  useEffect(() => {
+    if (!user || !courseId) return;
+
+    const loadData = async () => {
+      try {
+        const [courseData, mistakesData, statsData] = await Promise.all([
+          apiClient.getCourse(courseId!),
+          apiClient.getMistakes(user.id, courseId!),
+          apiClient.getMistakesStats(user.id, courseId!),
+        ]);
         setCourse(courseData);
+        setMistakes(mistakesData);
+        setStats(statsData);
+        setLoading(false);
+      } catch (err) {
+        console.error('Failed to load mistakes:', err);
+        setLoading(false);
       }
     };
 
-    loadUser();
-  }, [courseId]);
+    loadData();
+  }, [user, courseId]);
 
-  useEffect(() => {
-    if (user) {
-      fetchData();
-    }
-  }, [user]);
+  const handleRetryMistakes = async () => {
+    if (!user || !courseId) return;
 
-  const handleLogout = () => {
-    localStorage.removeItem('userId');
-    setUser(null);
-  };
-
-  const handleRetryAll = async () => {
-    if (!user) return;
-
+    setRetrying(true);
     try {
-      // 调用全部错题重练API，创建包含所有错题的批次
-      const result = await apiClient.retryAllMistakes(user.id, courseId || undefined);
-
-      // 跳转到刷题页面，传递batch_id参数
-      // 关键业务逻辑：通过batch_id让刷题页面加载所有错题
-      const url = `/quiz?batch_id=${result.batch_id}`;
-      window.location.href = url;
+      const result = await apiClient.retryMistakes(user.id, courseId, 10);
+      if (result.questions.length > 0) {
+        router.push(`/quiz?course_id=${courseId}`);
+      } else {
+        alert('没有需要重练的错题');
+      }
     } catch (error) {
-      console.error('Failed to start wrong answer practice:', error);
-      alert('开始错题重练失败: ' + (error as Error).message);
+      console.error('Failed to retry mistakes:', error);
+      alert('重练错题失败');
+    } finally {
+      setRetrying(false);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}>
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--card-border)', borderTopColor: 'var(--primary)' }} />
+          <p className="mt-4" style={{ color: 'var(--foreground-secondary)' }}>加载中...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full mx-auto p-6">
-          <div className="bg-white rounded-lg shadow-md p-8">
-            <h1 className="text-3xl font-bold text-center mb-6 text-gray-800">
-              AILearn Hub
-            </h1>
-            <p className="text-center text-gray-700 mb-8">
-              请先登录
-            </p>
-
-            <a
-              href="/"
-              className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md py-2.5 px-4 text-center transition-colors"
-            >
-              返回首页
-            </a>
-          </div>
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--background)' }}>
+        <div className="text-center max-w-md p-8" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+          <p className="mb-4" style={{ color: 'var(--foreground-secondary)' }}>请先登录</p>
+          <Link href="/" className="inline-block px-6 py-2 text-white" style={{ background: 'var(--primary)', borderRadius: 'var(--radius-md)' }}>返回首页</Link>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+      <nav className="sticky top-0 z-50 border-b" style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Link href="/" className="text-2xl font-bold text-gray-800 hover:text-gray-900">
-                AILearn Hub
+          <div className="flex justify-between h-14">
+            <div className="flex items-center gap-2">
+              <Link href="/" className="w-8 h-8 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
               </Link>
-              <span className="ml-4 text-gray-400">/</span>
+              <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
+              <Link href="/courses" style={{ color: 'var(--foreground-title)' }}>选择课程</Link>
               {course && (
                 <>
-                  <Link href="/courses" className="ml-4 text-2xl font-bold text-gray-800 hover:text-gray-900">
-                    {course.title}
-                  </Link>
-                  <span className="ml-4 text-gray-400">/</span>
-                  <span className="ml-4 text-2xl font-bold text-gray-800">
-                    错题本
-                  </span>
+                  <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
+                  <span style={{ color: 'var(--foreground-secondary)' }}>{course.title}</span>
                 </>
               )}
-              {!course && (
-                <span className="ml-4 text-2xl font-bold text-gray-800">
-                  错题本
-                </span>
-              )}
+              <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
+              <span style={{ color: 'var(--error)' }}>错题本</span>
             </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">
-                {user?.nickname || user?.username}
-              </span>
-              <button
-                onClick={handleLogout}
-                className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                切换用户
-              </button>
-              <Link
-                href="/stats"
-                className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
-              >
-                统计
-              </Link>
+            <div className="flex items-center gap-3">
+              <ThemeSelector />
+              <button onClick={() => router.push('/courses')} className="px-3 py-1.5 text-sm" style={{ background: 'var(--background-secondary)', color: 'var(--foreground-secondary)', borderRadius: 'var(--radius-sm)' }}>返回课程</button>
             </div>
           </div>
         </div>
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2">
-            错题本
-          </h1>
-          <p className="text-gray-700">
-            查看您的错题并重点复习
-          </p>
+        <div className="mb-8 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground-title)' }}>错题本</h1>
+            <p style={{ color: 'var(--foreground-secondary)' }}>查看和管理你的错题</p>
+          </div>
+          {mistakes.length > 0 && (
+            <button
+              onClick={handleRetryMistakes}
+              disabled={retrying}
+              className="px-6 py-2 text-white font-medium disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-md)' }}
+            >
+              {retrying ? '加载中...' : '重练错题'}
+            </button>
+          )}
         </div>
 
-        {error && (
-          <div className="mb-6 bg-red-100 text-red-700 p-4 rounded-md">
-            {error}
-          </div>
-        )}
-
-        {/* Stats Card */}
         {stats && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <div className="text-sm text-gray-700 mb-1">总错题数</div>
-                <div className="text-3xl font-bold text-red-600">{stats.total_wrong}</div>
-              </div>
-              <div>
-                <div className="text-sm text-gray-700 mb-1">按题型</div>
-                <div className="text-sm">
-                  <div className="flex justify-between mb-1">
-                    <span className="text-gray-700">单选题</span>
-                    <span className="font-medium text-gray-900">{stats.wrong_by_type.single_choice || 0}题</span>
-                  </div>
-                  <div className="flex justify-between mb-1">
-                    <span className="text-gray-700">多选题</span>
-                    <span className="font-medium text-gray-900">{stats.wrong_by_type.multiple_choice || 0}题</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">判断题</span>
-                    <span className="font-medium text-gray-900">{stats.wrong_by_type.true_false || 0}题</span>
-                  </div>
-                </div>
-              </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="p-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+              <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>总错题数</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--error)' }}>{stats.total_wrong}</p>
+            </div>
+            <div className="p-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+              <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>单选题</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--foreground-title)' }}>{stats.wrong_by_type?.single_choice || 0}</p>
+            </div>
+            <div className="p-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+              <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>多选题</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--foreground-title)' }}>{stats.wrong_by_type?.multiple_choice || 0}</p>
+            </div>
+            <div className="p-4" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+              <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>判断题</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--foreground-title)' }}>{stats.wrong_by_type?.true_false || 0}</p>
             </div>
           </div>
         )}
 
-        {/* 错题重练按钮 */}
-        {stats && stats.total_wrong > 0 && (
-          <div className="mb-6">
-            <button
-              onClick={handleRetryAll}
-              className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-4 px-6 rounded-lg shadow-md transition-all hover:shadow-lg"
-            >
-              开始错题重练 ({stats.total_wrong} 题)
-            </button>
-            <p className="text-sm text-gray-600 mt-2 text-center">
-              系统会自动创建包含所有错题的刷题批次
-            </p>
-          </div>
-        )}
-
-        {/* Mistakes List */}
-        {loading ? (
-          <div className="text-center py-12">
-            <div className="inline-block h-8 w-8 border-4 border-t-gray-300 rounded-full animate-spin"></div>
-            <p className="mt-4 text-gray-700">加载中...</p>
-          </div>
-        ) : (
+        {mistakes.length > 0 ? (
           <div className="space-y-4">
-            {mistakes.map((mistake, index) => (
+            {mistakes.map((question, index) => (
               <div
-                key={mistake.id || index}
-                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow overflow-hidden"
+                key={question.id}
+                className="p-6"
+                style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}
               >
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-700">
-                          第{index + 1}题
-                        </span>
-                        {/* 错题本中调整tag颜色以区分题型，多选题使用醒目颜色 */}
-                        <span className={`px-2 py-1 text-xs font-medium rounded ${
-                          mistake.question_type === 'single_choice' ? 'bg-blue-100 text-blue-700' :
-                          mistake.question_type === 'multiple_choice' ? 'bg-orange-500 text-white font-bold' :
-                          'bg-green-100 text-green-700'
-                        }`}>
-                          {mistake.question_type === 'single_choice' ? '单选题' :
-                           mistake.question_type === 'multiple_choice' ? '多选题' : '判断题'}
-                        </span>
-                        {/* 错题本中显示题集来源（显示固定题库名称，而非课程名） */}
-                        {mistake.question_set_codes && mistake.question_set_codes.length > 0 && (
-                          <span className="px-2 py-1 text-xs font-medium rounded bg-purple-100 text-purple-700">
-                            📚 {mistake.question_set_codes.join(', ')}
-                          </span>
-                        )}
-                        {mistake.difficulty && (
-                          <span className="px-2 py-1 text-xs font-medium rounded bg-yellow-100 text-yellow-700">
-                            难度{mistake.difficulty}
-                          </span>
-                        )}
-                        {mistake.last_wrong_time && (
-                          <span className="px-2 py-1 text-xs font-medium rounded bg-red-100 text-red-700">
-                            最近做错: {new Date(mistake.last_wrong_time!).toLocaleString('zh-CN', {
-                              month: 'short',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-gray-800 font-medium"><LaTeXRenderer content={mistake.content} /></p>
-                    </div>
-                  </div>
-
-                  {mistake.options && (
-                    <div className="space-y-2 mt-4">
-                      {normalizeOptions(mistake.options).map(([key, value]) => {
-                        const isCorrect = isCorrectAnswer(mistake.correct_answer, key, value);
-                        
-                        return (
-                        <div
-                          key={key}
-                          className={`flex items-center gap-3 p-2 rounded ${
-                            isCorrect
-                              ? 'bg-green-50 border border-green-200'
-                              : 'bg-gray-50'
-                          }`}
-                        >
-                          <span className="w-10 text-right font-medium text-gray-800">{key}.</span>
-                          <strong className="flex-1 text-gray-900"><LaTeXRenderer content={value} /></strong>
-                          {isCorrect && (
-                            <span className="text-green-600 font-medium text-sm">正确答案</span>
-                          )}
-                        </div>
-                      )})}
-                    </div>
-                  )}
-
-                  {mistake.explanation && (
-                    <div className="mt-4 p-3 bg-blue-50 rounded-md">
-                      <div className="text-sm font-medium text-blue-900 mb-1">解析：</div>
-                      <p className="text-sm text-blue-800"><LaTeXRenderer content={mistake.explanation} /></p>
-                    </div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="px-2 py-1 text-xs" style={{ background: question.question_type === 'single_choice' ? 'var(--info-light)' : question.question_type === 'multiple_choice' ? 'var(--warning)' : 'var(--success-light)', color: question.question_type === 'single_choice' ? 'var(--info-dark)' : question.question_type === 'multiple_choice' ? '#fff' : 'var(--success-dark)', borderRadius: 'var(--radius-sm)' }}>
+                    {question.question_type === 'single_choice' ? '单选题' : question.question_type === 'multiple_choice' ? '多选题' : '判断题'}
+                  </span>
+                  {question.last_wrong_time && (
+                    <span className="text-xs" style={{ color: 'var(--foreground-tertiary)' }}>
+                      错误时间: {new Date(question.last_wrong_time).toLocaleDateString()}
+                    </span>
                   )}
                 </div>
+
+                <p className="font-medium mb-4" style={{ color: 'var(--foreground-title)' }}>
+                  {index + 1}. <LaTeXRenderer content={question.content} />
+                </p>
+
+                {question.options && (
+                  <div className="space-y-2 mb-4">
+                    {Object.entries(question.options).map(([key, value]) => {
+                      const isCorrect = question.correct_answer?.includes(key);
+                      const isUserAnswer = question.user_answer?.includes(key);
+                      return (
+                        <div
+                          key={key}
+                          className="p-3"
+                          style={{
+                            background: isCorrect ? 'var(--success-light)' : isUserAnswer ? 'var(--error-light)' : 'var(--background-secondary)',
+                            borderRadius: 'var(--radius-sm)',
+                          }}
+                        >
+                          <strong style={{ color: isCorrect ? 'var(--success-dark)' : isUserAnswer ? 'var(--error-dark)' : 'var(--foreground-title)' }}>{key}.</strong>{' '}
+                          <span style={{ color: 'var(--foreground-title)' }}><LaTeXRenderer content={value} /></span>
+                          {isCorrect && <span className="ml-2" style={{ color: 'var(--success)' }}>✓ 正确</span>}
+                          {isUserAnswer && !isCorrect && <span className="ml-2" style={{ color: 'var(--error)' }}>✗ 你的答案</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                <div className="flex gap-4 text-sm">
+                  <div>
+                    <span style={{ color: 'var(--foreground-tertiary)' }}>你的答案:</span>{' '}
+                    <span style={{ color: 'var(--error)' }}>{question.user_answer || '未作答'}</span>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--foreground-tertiary)' }}>正确答案:</span>{' '}
+                    <span style={{ color: 'var(--success)' }}>{question.correct_answer}</span>
+                  </div>
+                </div>
+
+                {question.explanation && (
+                  <div className="mt-4 p-3" style={{ background: 'var(--background-secondary)', borderRadius: 'var(--radius-sm)' }}>
+                    <span className="font-medium" style={{ color: 'var(--foreground-title)' }}>解析:</span>
+                    <p className="mt-1" style={{ color: 'var(--foreground)' }}><LaTeXRenderer content={question.explanation} /></p>
+                  </div>
+                )}
               </div>
             ))}
-
-            {!loading && mistakes.length === 0 && (
-          <div className="text-center py-12 bg-white rounded-lg shadow-md">
-            <p className="text-gray-700">暂无错题</p>
           </div>
-            )}
+        ) : (
+          <div className="text-center py-12" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+            <div className="w-16 h-16 mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--success-light)', borderRadius: 'var(--radius-full)' }}>
+              <svg className="w-8 h-8" style={{ color: 'var(--success)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <p className="text-lg font-medium mb-2" style={{ color: 'var(--foreground-title)' }}>太棒了！</p>
+            <p style={{ color: 'var(--foreground-secondary)' }}>暂无错题，继续保持！</p>
           </div>
         )}
+
+        <button onClick={() => router.push('/courses')} className="mt-8 flex items-center gap-1 text-sm" style={{ color: 'var(--primary)' }}>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          返回课程列表
+        </button>
       </div>
     </div>
   );
@@ -327,7 +251,7 @@ function MistakesPageContent() {
 
 export default function MistakesPage() {
   return (
-    <Suspense fallback={<div>加载中...</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}><p style={{ color: 'var(--foreground-secondary)' }}>加载中...</p></div>}>
       <MistakesPageContent />
     </Suspense>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,27 +14,91 @@ interface MarkdownReaderProps {
   chapterPath?: string;
 }
 
+function MermaidDiagram({ code }: { code: string }) {
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    
+    const renderDiagram = async () => {
+      try {
+        const mermaid = (await import('mermaid')).default;
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: 'default',
+          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        });
+        
+        const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
+        if (mounted) {
+          setSvg(svg);
+          setIsLoading(false);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError('图表渲染失败');
+          setIsLoading(false);
+        }
+      }
+    };
+    
+    renderDiagram();
+    
+    return () => { mounted = false; };
+  }, [code]);
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--foreground-secondary)' }}>
+        加载图表中...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <pre style={{ 
+        background: 'var(--code-bg)', 
+        color: 'var(--code-text)',
+        padding: '16px',
+        borderRadius: 'var(--radius-md)',
+        overflow: 'auto'
+      }}>
+        {code}
+      </pre>
+    );
+  }
+
+  return (
+    <div 
+      style={{ 
+        padding: '16px', 
+        background: 'var(--background-secondary)', 
+        borderRadius: 'var(--radius-md)',
+        overflow: 'auto'
+      }}
+      dangerouslySetInnerHTML={{ __html: svg }} 
+    />
+  );
+}
+
 export default function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }: MarkdownReaderProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   
-  // 重写图片相对路径为完整 URL
   const rewriteImageUrl = (src: string): string => {
-    // 跳过网络图片和绝对路径
     if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
       return src;
     }
-    // 缺少课程目录名或章节路径则返回原路径
     if (!courseDirName || !chapterPath) {
       return src;
     }
-    // 计算章节所在目录
     const chapterDir = chapterPath.includes('/') ? chapterPath.substring(0, chapterPath.lastIndexOf('/')) : '';
-    // 拼接：课程目录/章节目录/图片相对路径
     const basePath = chapterDir ? `${courseDirName}/${chapterDir}` : courseDirName;
     return `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/courses/${basePath}/${src}`;
   };
 
-  // 跟踪滚动位置和阅读进度
   const handleScroll = () => {
     if (variant === 'chat' || !contentRef.current) return;
 
@@ -50,8 +114,8 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
 
   if ((!content || content.trim() === '') && variant === 'document') {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">没有可显示的内容</p>
+      <div className="flex-1 flex items-center justify-center" style={{ background: 'var(--background-secondary)' }}>
+        <p style={{ color: 'var(--foreground-secondary)' }}>没有可显示的内容</p>
       </div>
     );
   }
@@ -64,17 +128,18 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
     ? "flex-1 overflow-y-auto px-8 py-6 markdown-content"
     : "markdown-content";
 
+  const baseFontSize = variant === 'document' ? 17 : 14;
+
   return (
     <div
       ref={contentRef}
       onScroll={handleScroll}
       className={containerClasses}
-      style={variant === 'document' ? { scrollBehavior: 'smooth' } : {}}
+      style={variant === 'document' ? { scrollBehavior: 'smooth', fontSize: baseFontSize } : { fontSize: baseFontSize }}
     >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
-          // 代码块由 pre 处理，避免 div 嵌套在 p 中
           pre({ children }: any) {
             return <>{children}</>;
           },
@@ -85,37 +150,122 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
                            (props as any).inline ||
                            !className?.includes('language-');
             
-            // 行内代码
             if (inline) {
               return (
-                <code className="bg-slate-200 px-1.5 py-0.5 rounded text-sm" {...props}>
+                <code 
+                  style={{
+                    background: 'var(--code-inline-bg)',
+                    color: 'var(--code-text)',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '0.85em',
+                    textShadow: 'none',
+                    boxShadow: 'none',
+                  }}
+                  {...props}
+                >
                   {children}
                 </code>
               );
             }
             
-            // 代码块：使用 pre 而非 div，避免 hydration 错误
+            const codeContent = String(children).replace(/\n$/, '');
+            
+            if (language === 'mermaid') {
+              return (
+                <div style={{ margin: '16px 0' }}>
+                  <MermaidDiagram code={codeContent} />
+                </div>
+              );
+            }
+            
+            const languageColors: Record<string, string> = {
+              python: '#569cd6',
+              javascript: '#f59e0b',
+              typescript: '#3178c6',
+              java: '#ed8b00',
+              go: '#00add8',
+              rust: '#dea584',
+              cpp: '#f34b7d',
+              c: '#555555',
+              sql: '#e38c00',
+              html: '#e34c26',
+              css: '#264de4',
+              json: '#cbcb41',
+              yaml: '#cb171e',
+              bash: '#89e051',
+              shell: '#89e051',
+            };
+            const langColor = languageColors[language] || 'var(--code-lang-default)';
+            
             return (
-              <pre className="bg-slate-100 rounded-lg my-4 overflow-x-auto">
+              <div style={{ margin: '16px 0' }}>
+                {language && (
+                  <div style={{
+                    padding: '4px 12px',
+                    background: 'var(--code-header-bg)',
+                    border: '1px solid var(--code-border)',
+                    borderBottom: 'none',
+                    display: 'inline-block',
+                  }}>
+                    <span style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '12px',
+                      color: langColor,
+                      fontWeight: 500,
+                    }}>{language}</span>
+                  </div>
+                )}
                 <SyntaxHighlighter
-                  language={language}
-                  PreTag="code"
-                  className="rounded-lg p-4 !bg-transparent"
+                  language={language || 'text'}
+                  PreTag="pre"
+                  style={undefined}
+                  customStyle={{
+                    margin: 0,
+                    padding: '16px',
+                    background: 'var(--code-bg)',
+                    border: '1px solid var(--code-border)',
+                    borderTop: language ? 'none' : '1px solid var(--code-border)',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: '14px',
+                    lineHeight: 1.6,
+                    color: 'var(--code-text)',
+                    textShadow: 'none',
+                    boxShadow: 'none',
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '14px',
+                      textShadow: 'none',
+                    }
+                  }}
                   {...props}
                 >
-                  {String(children).replace(/\n$/, '')}
+                  {codeContent}
                 </SyntaxHighlighter>
-              </pre>
+              </div>
             );
           },
-          // 自定义标题样式
-          h1: ({ children }) => <h1 className="text-2xl font-bold mb-6 text-slate-900 border-b-2 border-slate-200 pb-3">{children}</h1>,
-          h2: ({ children }) => <h2 className="text-xl font-bold mb-4 mt-8 text-slate-800">{children}</h2>,
-          h3: ({ children }) => <h3 className="text-lg font-bold mb-3 mt-6 text-slate-800">{children}</h3>,
-          // 自定义段落样式 - 集成 LaTeX
+          h1: ({ children }) => (
+            <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
+              {children}
+            </h3>
+          ),
           p: ({ children }) => {
             return (
-              <p className={`mb-4 text-slate-700 leading-relaxed ${variant === 'chat' ? 'text-sm' : ''}`}>
+              <p style={{ marginBottom: '1rem', color: 'var(--foreground)', lineHeight: 1.8 }}>
                 {Array.isArray(children) 
                   ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
                   : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
@@ -123,40 +273,41 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
               </p>
             );
           },
-          // 自定义列表样式
-          ul: ({ children }) => <ul className="mb-4 ml-6 list-disc text-slate-700">{children}</ul>,
-          ol: ({ children }) => <ol className="mb-4 ml-6 list-decimal text-slate-700">{children}</ol>,
+          ul: ({ children }) => <ul style={{ marginBottom: '1rem', marginLeft: '1.5rem', listStyleType: 'disc', color: 'var(--foreground)' }}>{children}</ul>,
+          ol: ({ children }) => <ol style={{ marginBottom: '1rem', marginLeft: '1.5rem', listStyleType: 'decimal', color: 'var(--foreground)' }}>{children}</ol>,
           li: ({ children }) => (
-            <li className="mb-2">
+            <li style={{ marginBottom: '0.25rem', lineHeight: 1.7 }}>
               {Array.isArray(children) 
                   ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
                   : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
               }
             </li>
           ),
-          // 自定义链接样式
-          a: ({ href, children }) => <a href={href} className="text-indigo-600 hover:text-indigo-800 underline">{children}</a>,
+          a: ({ href, children }) => <a href={href} style={{ color: 'var(--primary)' }}>{children}</a>,
           img: ({ src, alt }) => (
             <img 
               src={rewriteImageUrl(typeof src === 'string' ? src : '')} 
               alt={alt || ''} 
-              className="max-w-full h-auto rounded-lg my-4"
+              style={{ maxWidth: '100%', height: 'auto', borderRadius: 'var(--radius-md)', margin: '1rem 0' }}
               loading="lazy"
             />
           ),
-          blockquote: ({ children }) => <blockquote className="border-l-4 border-slate-300 pl-4 italic my-4 text-slate-600">{children}</blockquote>,
-          // 表格样式支持
+          blockquote: ({ children }) => (
+            <blockquote style={{ borderLeft: '3px solid var(--primary)', paddingLeft: '1rem', margin: '1rem 0', color: 'var(--foreground-secondary)', background: 'var(--background-secondary)', padding: '0.75rem 1rem' }}>
+              {children}
+            </blockquote>
+          ),
           table: ({ children }) => (
-            <div className="overflow-x-auto my-4">
-              <table className="min-w-full border-collapse border border-slate-300">{children}</table>
+            <div style={{ overflowX: 'auto', margin: '1rem 0' }}>
+              <table style={{ minWidth: '100%', borderCollapse: 'collapse' }}>{children}</table>
             </div>
           ),
-          thead: ({ children }) => <thead className="bg-slate-100">{children}</thead>,
+          thead: ({ children }) => <thead style={{ background: 'var(--background-secondary)' }}>{children}</thead>,
           tbody: ({ children }) => <tbody>{children}</tbody>,
-          tr: ({ children }) => <tr className="border-b border-slate-200">{children}</tr>,
-          th: ({ children }) => <th className="border border-slate-300 px-4 py-2 text-left font-semibold text-slate-800">{children}</th>,
+          tr: ({ children }) => <tr style={{ borderBottom: '1px solid var(--card-border)' }}>{children}</tr>,
+          th: ({ children }) => <th style={{ border: '1px solid var(--card-border)', padding: '0.5rem 0.75rem', textAlign: 'left', fontWeight: 600, color: 'var(--foreground-title)' }}>{children}</th>,
           td: ({ children }) => (
-            <td className="border border-slate-300 px-4 py-2 text-slate-700">
+            <td style={{ border: '1px solid var(--card-border)', padding: '0.5rem 0.75rem', color: 'var(--foreground)' }}>
               {Array.isArray(children) 
                 ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
                 : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children

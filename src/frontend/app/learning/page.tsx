@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api';
 import type { Course, User } from '@/lib/api';
 import MarkdownReader from '@/components/MarkdownReader';
 import AIAssistant from '@/components/AIAssistant';
+import ThemeSelector from '@/components/ThemeSelector';
 
 function LearningPageContent() {
   const searchParams = useSearchParams();
@@ -19,13 +20,16 @@ function LearningPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const handleLogout = () => {
-    localStorage.removeItem('userId');
-    setUser(null);
-    window.location.reload();
-  };
+  // 禁止页面整体滚动
+  useEffect(() => {
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    };
+  }, []);
 
-  // 从 localStorage 加载用户
   useEffect(() => {
     const savedUserId = localStorage.getItem('userId');
     if (savedUserId) {
@@ -33,13 +37,11 @@ function LearningPageContent() {
     }
   }, []);
 
-  // 加载课程和章节内容
   useEffect(() => {
     if (!user || !courseId) return;
 
     const loadData = async () => {
       try {
-        // 并行加载课程和章节列表
         const [courseData, chaptersData] = await Promise.all([
           apiClient.getCourse(courseId!),
           apiClient.getLearningChapters(courseId!),
@@ -47,11 +49,9 @@ function LearningPageContent() {
 
         setCourse(courseData);
 
-        // 确定要加载的章节ID
         const targetChapterId = initialChapterId || chaptersData[0]?.id;
 
         if (targetChapterId) {
-          // 加载选定章节的完整内容（包括markdown）
           const chapterContent = await apiClient.getChapterContent(targetChapterId, user.id);
           setCurrentChapter(chapterContent);
         }
@@ -66,7 +66,6 @@ function LearningPageContent() {
     loadData();
   }, [user, courseId, initialChapterId]);
 
-  // 处理阅读进度更新
   const handleProgressChange = useCallback(async (position: number, percentage: number) => {
     if (!user || !currentChapter) return;
 
@@ -81,19 +80,14 @@ function LearningPageContent() {
     }
   }, [user, currentChapter]);
 
-  // 处理章节完成
   const handleChapterComplete = useCallback(async () => {
     if (!user || !currentChapter) return;
 
     try {
       await apiClient.markChapterCompleted(currentChapter.id, user.id);
-      // 标记为已完成
       setCurrentChapter((prev: any) => ({
         ...prev,
-        user_progress: {
-          ...prev.user_progress,
-          is_completed: true,
-        }
+        user_progress: { ...prev.user_progress, is_completed: true },
       }));
     } catch (err) {
       console.error('标记章节完成失败:', err);
@@ -102,25 +96,21 @@ function LearningPageContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}>
         <div className="text-center">
-          <div className="inline-block h-8 w-8 border-4 border-t-slate-200 rounded-full animate-spin"></div>
-          <p className="mt-4 text-slate-700">加载中...</p>
+          <div className="inline-block h-8 w-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--card-border)', borderTopColor: 'var(--primary)' }} />
+          <p className="mt-4" style={{ color: 'var(--foreground-secondary)' }}>加载中...</p>
         </div>
       </div>
     );
   }
 
-  if (error) {
+  if (error || !course) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <div className="bg-red-50 text-red-700 px-6 py-4 rounded-lg max-w-md">
-          <p className="font-semibold">加载失败</p>
-          <p className="mt-2">{error}</p>
-          <button
-            onClick={() => router.push('/courses')}
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
-          >
+      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--background)' }}>
+        <div className="text-center max-w-md p-8" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+          <p className="mb-4" style={{ color: 'var(--error)' }}>{error || '课程不存在'}</p>
+          <button onClick={() => router.push('/courses')} className="px-6 py-2 text-white" style={{ background: 'var(--primary)', borderRadius: 'var(--radius-md)' }}>
             返回课程列表
           </button>
         </div>
@@ -128,53 +118,23 @@ function LearningPageContent() {
     );
   }
 
-  if (!course) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <p className="text-slate-700">课程不存在</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* 顶部导航栏 */}
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/courses')}
-                className="text-2xl font-bold text-slate-800 hover:text-slate-900"
-              >
-                AILearn Hub
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--background)' }}>
+      <nav className="flex-shrink-0 border-b" style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
+        <div className="px-3 sm:px-4">
+          <div className="flex justify-between h-14">
+            <div className="flex items-center gap-2">
+              <button onClick={() => router.push('/courses')} className="w-8 h-8 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
               </button>
-              <span className="ml-4 text-slate-400">/</span>
-              <button
-                onClick={() => router.push(`/chapters?course_id=${courseId}`)}
-                className="ml-4 text-xl font-bold text-slate-800 hover:text-slate-900"
-              >
-                {course.title}
-              </button>
+              <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
+              <button onClick={() => router.push(`/chapters?course_id=${courseId}`)} style={{ color: 'var(--foreground-title)' }}>{course.title}</button>
             </div>
-            <div className="flex items-center space-x-4">
-              {user && (
-                <>
-                  <span className="text-sm text-slate-700">
-                    {user.nickname || user.username}
-                  </span>
-                  <button
-                    onClick={handleLogout}
-                    className="text-slate-700 hover:text-slate-900 px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-100 transition-colors"
-                  >
-                    切换用户
-                  </button>
-                </>
-              )}
-              <button
-                onClick={() => router.push('/courses')}
-                className="text-slate-700 hover:text-slate-900 px-3 py-2 rounded-md text-sm font-medium hover:bg-slate-100 transition-colors"
-              >
+            <div className="flex items-center gap-2">
+              <ThemeSelector />
+              <button onClick={() => router.push('/courses')} className="px-2 py-1 text-xs" style={{ background: 'var(--background-secondary)', color: 'var(--foreground-secondary)', borderRadius: 'var(--radius-sm)' }}>
                 返回课程
               </button>
             </div>
@@ -182,47 +142,36 @@ function LearningPageContent() {
         </div>
       </nav>
 
-      {/* 主内容区域 */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* 返回章节列表按钮 */}
-        <div className="mb-4">
-          <button
-            onClick={() => router.push(`/chapters?course_id=${courseId}`)}
-            className="text-slate-600 hover:text-slate-900 font-medium hover:underline"
-          >
-            ← 返回章节列表
-          </button>
-        </div>
+      <div className="flex-1 flex flex-col overflow-hidden px-2 sm:px-3 py-3">
+        <button onClick={() => router.push(`/chapters?course_id=${courseId}`)} className="text-sm flex items-center gap-1 mb-3 flex-shrink-0" style={{ color: 'var(--primary)' }}>
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          返回章节列表
+        </button>
 
-        <div className="flex gap-6 h-[calc(100vh-12rem)]">
-          {/* 左侧：Markdown 阅读器（占据更大空间，可以滚动） */}
-          <div className="flex-[2] flex flex-col min-w-0 overflow-hidden">
-            {/* 当前章节标题 */}
-            <div className="bg-white border-b border-slate-200 px-6 py-4 flex-shrink-0">
-              <h1 className="text-xl font-bold text-slate-900 mb-2">
-                {currentChapter?.title}
-              </h1>
-              {/* 阅读进度指示 */}
-              {currentChapter?.user_progress && (
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-slate-600">
-                    阅读进度: {currentChapter.user_progress.last_percentage.toFixed(1)}%
-                  </span>
-                  {!currentChapter.user_progress.is_completed && (
-                    <button
-                      onClick={handleChapterComplete}
-                      className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition-colors"
-                    >
-                      标记为已完成
-                    </button>
-                  )}
-                </div>
-              )}
+        <div className="flex-1 flex gap-4 min-h-0">
+          <div className="flex-[3] lg:flex-[4] flex flex-col min-w-0 overflow-hidden" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+            <div className="px-4 sm:px-6 py-3 flex-shrink-0 border-b" style={{ borderColor: 'var(--card-border)' }}>
+              <div className="flex items-center justify-between">
+                <h1 className="text-lg font-bold truncate" style={{ color: 'var(--foreground-title)' }}>{currentChapter?.title}</h1>
+                {currentChapter?.user_progress && (
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="h-1.5 w-24 rounded-full overflow-hidden" style={{ background: 'var(--background-tertiary)' }}>
+                      <div className="h-full rounded-full" style={{ width: `${currentChapter.user_progress.last_percentage}%`, background: 'linear-gradient(90deg, var(--primary), var(--primary-light))' }} />
+                    </div>
+                    <span className="text-xs" style={{ color: 'var(--primary)' }}>{currentChapter.user_progress.last_percentage.toFixed(0)}%</span>
+                    {!currentChapter.user_progress.is_completed && (
+                      <button onClick={handleChapterComplete} className="px-3 py-1.5 text-xs text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>标记完成</button>
+                    )}
+                    {currentChapter.user_progress.is_completed && (
+                      <span className="px-2 py-1 text-xs" style={{ background: 'var(--success-light)', color: 'var(--success-dark)', borderRadius: 'var(--radius-full)' }}>✓ 已完成</span>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Markdown 内容 */}
             {currentChapter && (
-              <div className="flex-1 overflow-y-auto bg-white">
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
                 <MarkdownReader
                   content={currentChapter.content_markdown}
                   onProgressChange={handleProgressChange}
@@ -233,18 +182,12 @@ function LearningPageContent() {
             )}
           </div>
 
-          {/* 右侧：AI 助手（固定在视口内） */}
-          <div className="flex-1 flex-shrink-0 w-96 bg-white border-l border-slate-200 overflow-hidden">
+          <div className="flex-1 min-w-0 lg:min-w-[320px] lg:max-w-[380px] flex-shrink-0 overflow-hidden" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
             {user ? (
-              <AIAssistant
-                chapterId={currentChapter?.id || ''}
-                userId={user.id}
-              />
+              <AIAssistant chapterId={currentChapter?.id || ''} userId={user.id} />
             ) : (
               <div className="h-full flex items-center justify-center p-8">
-                <p className="text-slate-500 text-center text-sm">
-                  请先登录以使用 AI 助手
-                </p>
+                <p style={{ color: 'var(--foreground-tertiary)' }}>请先登录以使用 AI 助手</p>
               </div>
             )}
           </div>
@@ -256,12 +199,7 @@ function LearningPageContent() {
 
 export default function LearningPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="inline-block h-8 w-8 border-4 border-t-gray-200 rounded-full animate-spin"></div>
-        <p className="ml-4 text-gray-700">加载中...</p>
-      </div>
-    }>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}><p style={{ color: 'var(--foreground-secondary)' }}>加载中...</p></div>}>
       <LearningPageContent />
     </Suspense>
   );

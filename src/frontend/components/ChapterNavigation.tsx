@@ -14,16 +14,28 @@ interface ChapterNavigationProps {
 
 export default function ChapterNavigation({ courseId, currentChapterId, chapters, onChapterSelect, progressSummary }: ChapterNavigationProps) {
   return (
-    <div className="w-64 bg-white border-r border-gray-200 p-4 flex flex-col">
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">章节目录</h2>
+    <div 
+      className="w-64 p-4 flex flex-col"
+      style={{ 
+        background: 'var(--card-bg)',
+        borderRight: '1px solid var(--card-border)'
+      }}
+    >
+      <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--foreground-title)' }}>章节目录</h2>
       
       {/* 课程进度摘要 */}
       {progressSummary && (
-        <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-          <p className="text-sm text-gray-700">
+        <div 
+          className="mb-4 p-3"
+          style={{ 
+            background: 'var(--primary-bg)',
+            borderRadius: 'var(--radius-md)'
+          }}
+        >
+          <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>
             <span className="font-semibold">进度:</span>{progressSummary.progress_percentage?.toFixed(1)}%
           </p>
-          <p className="text-xs text-gray-600">
+          <p className="text-xs" style={{ color: 'var(--foreground-tertiary)' }}>
             {progressSummary.completed_chapters} / {progressSummary.total_chapters} 章节完成
           </p>
         </div>
@@ -35,18 +47,19 @@ export default function ChapterNavigation({ courseId, currentChapterId, chapters
           <button
             key={chapter.id}
             onClick={() => onChapterSelect(chapter.id)}
-            className={`w-full text-left px-4 py-3 mb-2 rounded-lg transition-all ${
-              currentChapterId === chapter.id
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-50 hover:bg-gray-100 text-gray-700'
-            }`}
+            className="w-full text-left px-4 py-3 mb-2 transition-all"
+            style={{ 
+              background: currentChapterId === chapter.id ? 'var(--primary)' : 'var(--background-secondary)',
+              color: currentChapterId === chapter.id ? '#FFFFFF' : 'var(--foreground-secondary)',
+              borderRadius: 'var(--radius-md)'
+            }}
           >
             <div className="flex items-start gap-3">
               <span className="flex-1">
                 <span className="font-medium">{chapter.sort_order}. {chapter.title}</span>
                 {/* 完成标记 */}
                 {progressSummary?.completed_chapters && (
-                  <span className="ml-2 text-green-600">✓</span>
+                  <span className="ml-2" style={{ color: 'var(--success)' }}>✓</span>
                 )}
               </span>
             </div>

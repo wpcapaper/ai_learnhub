@@ -227,19 +227,25 @@ interface AIAssistantProps {
   };
 
   return (
-    <div className="flex flex-col h-full bg-white">
+    <div className="flex flex-col h-full" style={{ background: 'var(--card-bg)' }}>
       {/* 对话历史区域 */}
       <div className="flex-1 overflow-y-auto p-4" ref={messagesEndRef}>
         {messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-50 rounded-full mb-4">
-                <svg className="w-8 h-8 text-indigo-600" fill="none" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12 2c5.52 0 10 4.48 10 10v2c0 2-1.58-.72-3.28-2-3.28V6c0-2.72 2.48-2 72-6.28 2-3.28C20.72 2 22 6.48 22 12s0-5.52-4.48-10-10zm0 12c1.1 0 2 .9 2 2s-2.2V8c0-1.1-.9-2-2-.9-2h-1.1v2h2v-2h2c1.1 0 2 .9 2 2s0 .9 2 2h4.2l-3.8-2.1-1.6-1.6V10c0-3.6.4-6.3-1.5-7l-2.8-2.3-1.6-2.6-.5-3.1.6-4.5.8-3.2-6.3-2.9-4.3-8.3-1.5-1.2-.5-2.1-4.2-1.5-6.4-3.7-9.6-5.2-6.9-2.1-3.6-5.1-8.3-6.5-9.1-1.6-4.9-4.4-5.4-5.3-8.5-5-8-9.4-1.1-3.6-8.2-9.9-9.2-10.9-10.8-12.7z"></path>
+              <div 
+                className="inline-flex items-center justify-center w-16 h-16 mb-4"
+                style={{ 
+                  background: 'var(--primary-bg)',
+                  borderRadius: 'var(--radius-lg)'
+                }}
+              >
+                <svg className="w-8 h-8" style={{ color: 'var(--primary)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
                 </svg>
               </div>
-              <p className="text-lg text-slate-700 font-medium mb-2">开始与 AI 助手对话</p>
-              <p className="text-sm text-slate-500">询问关于本章节的问题</p>
+              <p className="text-lg font-medium mb-2" style={{ color: 'var(--foreground-title)' }}>开始与 AI 助手对话</p>
+              <p className="text-sm" style={{ color: 'var(--foreground-tertiary)' }}>询问关于本章节的问题</p>
             </div>
           </div>
         ) : (
@@ -251,18 +257,21 @@ interface AIAssistantProps {
                   message.role === 'user' ? 'items-end' : 'items-start'
                 }`}
               >
-                {/* 显示名称 */}
-                <div className="text-xs text-slate-500 mb-2">
+                <div className="text-xs mb-1.5 px-1" style={{ color: 'var(--foreground-tertiary)' }}>
                   {message.role === 'user' ? userName : 'AI 助手'}
                 </div>
 
-                {/* 消息气泡 */}
                 <div
-                  className={`max-w-[90%] shadow-lg px-5 py-3 ${
-                    message.role === 'user'
-                      ? 'bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-br-2xl'
-                      : 'bg-white border border-slate-100 text-slate-800 rounded-bl-2xl w-full'
-                  }`}
+                  className="max-w-[90%] px-4 py-3"
+                  style={{ 
+                    background: message.role === 'user' 
+                      ? 'var(--primary)'
+                      : 'var(--background-secondary)',
+                    color: message.role === 'user' ? '#FFFFFF' : 'var(--foreground)',
+                    borderRadius: 'var(--radius-md)',
+                    width: message.role === 'assistant' ? '100%' : undefined,
+                    maxWidth: message.role === 'assistant' ? '100%' : undefined,
+                  }}
                 >
                   <div className={`text-sm leading-relaxed ${message.role === 'user' ? 'whitespace-pre-wrap' : ''}`}>
                     {message.role === 'user' ? (
@@ -270,28 +279,32 @@ interface AIAssistantProps {
                     ) : message.content ? (
                       <MarkdownReader content={processMessageContent(message.content)} variant="chat" />
                     ) : (
-                      // AI消息为空时显示加载动效
                       <div className="flex items-center space-x-3 py-1">
                         <div className="flex space-x-1">
-                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
-                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
-                          <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '0ms' }}></span>
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '150ms' }}></span>
+                          <span className="w-2 h-2 rounded-full animate-bounce" style={{ background: 'var(--primary)', animationDelay: '300ms' }}></span>
                         </div>
-                        <span className="text-indigo-500 font-medium">{thinkingText || '正在思考...'}</span>
+                        <span style={{ color: 'var(--foreground-secondary)' }}>{thinkingText || '正在思考...'}</span>
                       </div>
                     )}
                   </div>
                   
-                  {/* 后续问题推荐 (仅在最后一条 AI 消息后显示) */}
                   {message.role === 'assistant' && 
                    index === messages.length - 1 && 
                    showFollowUp && (
-                    <div className="mt-4 flex flex-wrap gap-2 animate-fade-in">
+                    <div className="mt-3 pt-3 flex flex-wrap gap-2" style={{ borderTop: '1px solid var(--card-border)' }}>
                       {suggestedQuestions.map((q, i) => (
                         <button
                           key={i}
                           onClick={() => { setInput(q); handleSendMessage(); }}
-                          className="px-3 py-1.5 bg-indigo-50 text-indigo-700 text-xs rounded-full border border-indigo-100 hover:bg-indigo-100 hover:border-indigo-200 transition-colors"
+                          className="px-3 py-1.5 text-xs transition-colors"
+                          style={{ 
+                            background: 'var(--card-bg)',
+                            color: 'var(--foreground)',
+                            borderRadius: 'var(--radius-sm)',
+                            border: '1px solid var(--card-border)',
+                          }}
                         >
                           {q}
                         </button>
@@ -306,9 +319,15 @@ interface AIAssistantProps {
       </div>
 
       {/* 输入区域 */}
-      <div className="border-t border-slate-200 p-4 bg-slate-50">
+      <div 
+        className="border-t p-4"
+        style={{ 
+          background: 'var(--background-secondary)',
+          borderColor: 'var(--card-border)'
+        }}
+      >
         {!userId ? (
-          <p className="text-sm text-slate-500 text-center py-4">
+          <p className="text-sm text-center py-4" style={{ color: 'var(--foreground-tertiary)' }}>
             请先登录以使用 AI 助手
           </p>
         ) : (
@@ -320,16 +339,27 @@ interface AIAssistantProps {
               onKeyPress={handleKeyPress}
               placeholder="输入你的问题..."
               disabled={isLoading}
-              className="flex-1 px-4 py-3 bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent disabled:bg-slate-100 disabled:text-slate-400 text-base transition-all"
+              className="flex-1 px-4 py-3 focus:outline-none disabled:opacity-50 text-base transition-all"
+              style={{ 
+                background: 'var(--card-bg)',
+                border: '1px solid var(--card-border)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--foreground)',
+              }}
             />
             <button
               onClick={handleSendMessage}
               disabled={isLoading || !input.trim()}
-              className="px-6 py-3 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-xl hover:from-indigo-700 hover:to-indigo-800 disabled:from-slate-400 disabled:to-slate-400 disabled:cursor-not-allowed transition-all shadow-md text-sm font-medium"
+              className="px-5 py-3 font-medium text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              style={{ 
+                background: 'var(--primary)',
+                color: '#FFFFFF',
+                borderRadius: 'var(--radius-md)'
+              }}
             >
               {isLoading ? (
                 <span className="inline-flex items-center">
-                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8 8 018 16z"></path>
                   </svg>

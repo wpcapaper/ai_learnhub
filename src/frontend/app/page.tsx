@@ -41,75 +41,154 @@ export default function HomePage() {
 
   if (!user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full mx-auto p-6">
-          <div className="bg-white rounded-lg shadow-md p-8">
-            <h1 className="text-3xl font-bold text-center mb-6 text-gray-800">
+      <div className="min-h-screen flex items-center justify-center p-6" style={{ background: 'var(--background)' }}>
+        <div 
+          className="w-full max-w-md p-8"
+          style={{
+            background: 'var(--card-bg)',
+            border: '1px solid var(--card-border)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div className="text-center mb-8">
+            <div 
+              className="w-16 h-16 mx-auto mb-4 flex items-center justify-center"
+              style={{ 
+                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              <svg className="w-8 h-8 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+            </div>
+            <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground-title)' }}>
               AILearn Hub
             </h1>
-            <p className="text-center text-gray-700 mb-8">
-              欢迎来到AI学习系统 - 用AI学AI
+            <p style={{ color: 'var(--foreground-secondary)' }}>
+              用AI学AI，智能高效学习
             </p>
+          </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-800 mb-2">
-                  昵称（可选）
-                </label>
-                <input
-                  type="text"
-                  value={nickname}
-                  onChange={(e) => setNickname(e.target.value)}
-                  className="w-full px-3 py-2 text-gray-900 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                  placeholder="输入昵称"
-                />
-              </div>
-
-              <button
-                onClick={handleCreateUser}
-                disabled={loading}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md py-2.5 px-4 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {loading ? '创建中...' : '开始学习'}
-              </button>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--foreground)' }}>
+                昵称（可选）
+              </label>
+              <input
+                type="text"
+                value={nickname}
+                onChange={(e) => setNickname(e.target.value)}
+                className="w-full px-4 py-3 text-base outline-none transition-all"
+                style={{ 
+                  color: 'var(--foreground)',
+                  borderColor: 'var(--card-border)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--background)',
+                  border: '1px solid var(--card-border)',
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'var(--primary)';
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = 'var(--card-border)';
+                }}
+                placeholder="给自己取个名字吧"
+              />
             </div>
 
-            {message && (
-              <div className={`mt-4 p-4 rounded-md ${message.includes('成功') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                {message}
-              </div>
-            )}
+            <button
+              onClick={handleCreateUser}
+              disabled={loading}
+              className="w-full py-3 text-white font-medium transition-opacity disabled:opacity-50"
+              style={{
+                background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              {loading ? '创建中...' : '开始学习之旅'}
+            </button>
           </div>
+
+          {message && (
+            <div 
+              className="mt-4 p-3 text-center text-sm"
+              style={{ 
+                background: message.includes('成功') ? 'var(--success-light)' : 'var(--error-light)',
+                color: message.includes('成功') ? 'var(--success-dark)' : 'var(--error-dark)',
+                borderRadius: 'var(--radius-md)',
+              }}
+            >
+              {message}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white shadow-sm">
+    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+      <nav 
+        className="sticky top-0 z-50 border-b"
+        style={{ 
+          background: 'var(--card-bg)',
+          borderColor: 'var(--card-border)',
+        }}
+      >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <h1 className="text-2xl font-bold text-gray-800">
+          <div className="flex justify-between h-14">
+            <div className="flex items-center gap-3">
+              <div 
+                className="w-9 h-9 flex items-center justify-center"
+                style={{ 
+                  background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
+              >
+                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <span className="text-lg font-bold" style={{ color: 'var(--foreground-title)' }}>
                 AILearn Hub
-              </h1>
+              </span>
             </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-700">
+            
+            <div className="flex items-center gap-3">
+              <span 
+                className="hidden sm:block px-3 py-1 text-sm"
+                style={{ 
+                  background: 'var(--primary-bg)',
+                  color: 'var(--primary)',
+                  borderRadius: 'var(--radius-full)',
+                }}
+              >
                 {user?.nickname || user?.username}
               </span>
+              
               <button
                 onClick={handleSwitchUser}
-                className="text-gray-700 hover:text-gray-900 px-3 py-2 rounded-md text-sm font-medium"
+                className="px-3 py-1.5 text-sm"
+                style={{ 
+                  color: 'var(--foreground-secondary)',
+                  background: 'var(--background-secondary)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
               >
                 切换用户
               </button>
+              
               <button
                 onClick={logout}
-                className="text-red-600 hover:text-red-900 px-3 py-2 rounded-md text-sm font-medium"
+                className="px-3 py-1.5 text-sm"
+                style={{ 
+                  color: 'var(--error)',
+                  background: 'var(--error-light)',
+                  borderRadius: 'var(--radius-sm)',
+                }}
               >
-                退出登录
+                退出
               </button>
             </div>
           </div>
@@ -117,37 +196,50 @@ export default function HomePage() {
       </nav>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              选择课程
-            </h2>
-            <p className="text-gray-700 mb-4">
-              选择一个课程开始学习，支持刷题和考试模式
-            </p>
-            <a
-              href="/courses"
-              className="block w-full bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-md py-2.5 px-4 text-center transition-colors"
-            >
-              查看课程
-            </a>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow">
-            <h2 className="text-xl font-bold text-gray-800 mb-4">
-              学习统计
-            </h2>
-            <p className="text-gray-700 mb-4">
-              查看你的学习进度、正确率和已掌握题目
-            </p>
-            <a
-              href="/stats"
-              className="block w-full bg-green-600 hover:bg-green-700 text-white font-medium rounded-md py-2.5 px-4 text-center transition-colors"
-            >
-              查看统计
-            </a>
-          </div>
+        <div 
+          className="mb-8 p-6"
+          style={{
+            background: 'linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <h2 className="text-2xl font-bold text-white mb-2">
+            你好，{user?.nickname || user?.username}！
+          </h2>
+          <p className="text-white/90">
+            今天想学点什么？选择一个课程开始你的学习之旅吧。
+          </p>
         </div>
+
+        <a 
+          href="/courses" 
+          className="block p-6 group"
+          style={{
+            background: 'var(--card-bg)',
+            border: '1px solid var(--card-border)',
+            borderRadius: 'var(--radius-lg)',
+          }}
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-bold mb-1" style={{ color: 'var(--foreground-title)' }}>
+                选择课程
+              </h3>
+              <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>
+                选择一个课程开始学习，支持刷题和考试模式
+              </p>
+            </div>
+            <svg 
+              className="w-5 h-5 transition-transform group-hover:translate-x-1" 
+              style={{ color: 'var(--primary)' }}
+              fill="none" 
+              viewBox="0 0 24 24" 
+              stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </a>
       </div>
     </div>
   );

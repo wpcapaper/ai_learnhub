@@ -36,11 +36,11 @@ export default function LaTeXRenderer({ content }: LaTeXRendererProps) {
   }, []);
 
   if (!content) {
-    return <span className="text-gray-900"></span>;
+    return <span style={{ color: 'var(--foreground)' }}></span>;
   }
 
   if (!isLoaded) {
-    return <span className="text-gray-900">{content}</span>;
+    return <span style={{ color: 'var(--foreground)' }}>{content}</span>;
   }
 
   const renderLatex = (latex: string, displayMode: boolean = false): React.ReactNode => {
@@ -124,7 +124,7 @@ export default function LaTeXRenderer({ content }: LaTeXRendererProps) {
   }
 
   return (
-    <span className="text-gray-900">
+    <span style={{ color: 'var(--foreground)' }}>
       {finalParts.map((part, index) => {
         if (typeof part === 'string') {
           return <React.Fragment key={`text-${index}`}>{part}</React.Fragment>;

@@ -1,12 +1,218 @@
 @import "tailwindcss";
 
+/* JetBrains Mono 字体 - 代码块专用 */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('/fonts/JetBrainsMono-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+/**
+ * AILearn Hub - 护眼配色系统
+ * 
+ * 两套主题：
+ * - 浅色（默认）：暖白背景，适合长时间学习
+ * - 深色：柔和灰色，适合夜间使用
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #faf9f7;
+  --background-secondary: #f5f3f0;
+  --background-tertiary: #ebe8e4;
+  
+  --foreground: #2d3748;
+  --foreground-secondary: #5a6578;
+  --foreground-tertiary: #8a94a6;
+  --foreground-title: #1a202c;
+  
+  --primary: #5b6be0;
+  --primary-light: #818cf8;
+  --primary-dark: #4f5bd5;
+  --primary-bg: #eef0fd;
+  
+  --success: #2d9f6f;
+  --success-light: #d1fae5;
+  --success-dark: #1e7e56;
+  
+  --warning: #c4882f;
+  --warning-light: #fef3c7;
+  --warning-dark: #a06e1f;
+  
+  --error: #d45454;
+  --error-light: #fee2e2;
+  --error-dark: #b43c3c;
+  
+  --info: #4a8fd9;
+  --info-light: #dbeafe;
+  --info-dark: #3a7bc8;
+  
+  --card-bg: #ffffff;
+  --card-border: #e8e5e1;
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+  
+  --code-bg: #1e1e1e;
+  --code-header-bg: #252526;
+  --code-border: #333;
+  --code-text: #d4d4d4;
+  --code-inline-bg: #282828;
+  --code-lang-default: #888;
+  
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+}
+
+[data-theme="dark"], .dark {
+  --background: #141416;
+  --background-secondary: #1c1c1f;
+  --background-tertiary: #26262a;
+  
+  --foreground: #e8e6e3;
+  --foreground-secondary: #a8a5a0;
+  --foreground-tertiary: #6b6966;
+  --foreground-title: #f5f4f2;
+  
+  --primary: #7c7ff0;
+  --primary-light: #a5a7f5;
+  --primary-dark: #6b6ee5;
+  --primary-bg: #252538;
+  
+  --success: #3cb683;
+  --success-light: #1a3d2d;
+  --success-dark: #2d9f6f;
+  
+  --warning: #d4a43c;
+  --warning-light: #3d3020;
+  --warning-dark: #b88a2a;
+  
+  --error: #e56666;
+  --error-light: #3d2020;
+  --error-dark: #d45454;
+  
+  --info: #5a9fe9;
+  --info-light: #203040;
+  --info-dark: #4a8fd9;
+  
+  --card-bg: #1e1e21;
+  --card-border: rgba(255, 255, 255, 0.08);
+  
+  --code-bg: #0d0d0e;
+  --code-header-bg: #161618;
+  --code-border: #2a2a2c;
+  --code-text: #c9c9c9;
+  --code-inline-bg: #1a1a1c;
+  --code-lang-default: #6b6b6b;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
 }
+
+pre, code, .code-block, pre code, pre span {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  text-shadow: none;
+}
+
+pre {
+  background: var(--code-bg) !important;
+  border: 1px solid var(--code-border);
+  padding: 16px;
+  overflow-x: auto;
+  margin: 16px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--code-text);
+  text-shadow: none;
+  box-shadow: none;
+}
+
+p code, li code {
+  background: var(--code-inline-bg);
+  color: var(--code-text);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  text-shadow: none;
+  box-shadow: none;
+}
+
+pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--foreground-tertiary);
+  border-radius: 4px;
+}
+
+::selection {
+  background: var(--primary-bg);
+  color: var(--foreground-title);
+}
+
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.markdown-content h1 { font-size: 1.75rem; font-weight: 700; color: var(--foreground-title); margin: 1.5rem 0 0.75rem; }
+.markdown-content h2 { font-size: 1.5rem; font-weight: 600; color: var(--foreground-title); margin: 1.25rem 0 0.5rem; }
+.markdown-content h3 { font-size: 1.25rem; font-weight: 600; color: var(--foreground-title); margin: 1rem 0 0.5rem; }
+.markdown-content p { margin-bottom: 1rem; line-height: 1.7; }
+.markdown-content a { color: var(--primary); }
+.markdown-content ul, .markdown-content ol { padding-left: 1.5rem; margin: 0.75rem 0; }
+.markdown-content li { margin: 0.25rem 0; }
+.markdown-content blockquote { border-left: 3px solid var(--primary); padding: 0.75rem 1rem; margin: 1rem 0; color: var(--foreground-secondary); background: var(--background-secondary); }
+.markdown-content table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+.markdown-content th, .markdown-content td { border: 1px solid var(--card-border); padding: 0.5rem 0.75rem; text-align: left; }
+.markdown-content th { background: var(--background-secondary); font-weight: 600; }
+.markdown-content img { max-width: 100%; border-radius: var(--radius-md); margin: 1rem 0; }
+.markdown-content hr { border: none; border-top: 1px solid var(--card-border); margin: 1.5rem 0; }
