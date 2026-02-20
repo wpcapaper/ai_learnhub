@@ -2,11 +2,16 @@
 FastAPI应用入口
 """
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 import logging
 
-# 加载环境变量 (必须在导入其他模块之前)
-load_dotenv()
+# 加载环境变量 - 优先从根目录加载，回退到当前目录
+root_env = Path(__file__).parent.parent.parent.parent / ".env"
+if root_env.exists():
+    load_dotenv(root_env)
+else:
+    load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.api import users, review, quiz, exam, courses, question_sets, mistakes, learning
+from app.core.admin_security import AdminIPWhitelistMiddleware
 from pathlib import Path
 
 
@@ -58,20 +64,48 @@ try:
 except ImportError as e:
     logger.info(f"Admin 模块未安装，相关接口不可用: {e}")
 
+def _get_allowed_origins() -> list[str]:
+    """
+    获取 CORS 允许的源列表
+    
+    从环境变量 ALLOWED_ORIGINS 读取，多个源用逗号分隔。
+    未设置时使用默认的本地开发源。
+    """
+    origins_str = os.getenv("ALLOWED_ORIGINS", "")
+    if origins_str:
+        origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+        if origins:
+            return origins
+    
+    # 默认：本地开发环境
+    return [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8080",
+    ]
+
+
 app = FastAPI(
     title="AILearn Hub API",
     description="AI Learning System - Quiz and Exam Management",
     version="0.1.0"
 )
 
-# CORS配置
+# CORS配置 - 从环境变量读取允许的源
+allowed_origins = _get_allowed_origins()
+logger.info(f"CORS 允许的源: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Admin API IP 白名单中间件（保护 /api/admin/* 路由）
+app.add_middleware(AdminIPWhitelistMiddleware)
 
 # 包含所有路由
 app.include_router(users.router, prefix="/api", tags=["用户管理"])

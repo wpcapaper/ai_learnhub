@@ -99,7 +99,7 @@ class OpenAIEmbedder(EmbeddingModel):
                 end_time = dt.now()
                 duration_ms = (end_time - start_time).total_seconds() * 1000
                 
-                output_data = {
+                output_data: Dict[str, Any] = {
                     "embedding_count": len(result) if result else 0,
                     "dimension": len(result[0]) if result else 0,
                 }

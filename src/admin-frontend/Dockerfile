@@ -15,6 +15,10 @@ RUN npm install
 FROM base AS builder
 WORKDIR /app
 
+# 构建时参数 - NEXT_PUBLIC_* 变量必须在构建时传入
+ARG NEXT_PUBLIC_ADMIN_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_ADMIN_API_URL=$NEXT_PUBLIC_ADMIN_API_URL
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 

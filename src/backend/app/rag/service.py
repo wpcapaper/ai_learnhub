@@ -56,21 +56,21 @@ class RAGService:
     """RAG 服务统一入口，支持配置化加载和延迟初始化"""
     
     _instance: Optional['RAGService'] = None
-    _config: Optional[Dict[str, Any]] = None
+    _class_config: Optional[Dict[str, Any]] = None  # 类变量，单例模式使用
     
     @classmethod
     def get_instance(cls, config_path: Optional[str] = None) -> 'RAGService':
         """获取单例实例（延迟初始化）"""
         if cls._instance is None:
-            cls._config = _load_config(config_path)
-            cls._instance = cls(cls._config)
+            cls._class_config = _load_config(config_path)
+            cls._instance = cls(cls._class_config)
         return cls._instance
     
     @classmethod
     def reset_instance(cls):
         """重置单例（用于测试或重新加载配置）"""
         cls._instance = None
-        cls._config = None
+        cls._class_config = None
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
@@ -79,13 +79,17 @@ class RAGService:
         Args:
             config: 配置字典，为 None 时自动加载默认配置
         """
-        self._config = config or _load_config()
+        if config is not None:
+            self._config = config
+        else:
+            self._config = _load_config()
         
         # 延迟初始化的组件
         self._embedding_model: Optional[EmbeddingModel] = None
         self._reranker: Optional[Reranker] = None
         self._query_expander: Optional[QueryExpander] = None
         self._language_detector: Optional[LanguageDetector] = None
+        self._keyword_retriever: Optional[Any] = None  # 关键词检索器（混合检索用）
         
         # 向量存储配置
         vector_config = self._config.get("vector_store", {})
@@ -274,7 +278,8 @@ class RAGService:
         Returns:
             检索结果列表，按相似度降序排列
         """
-        top_k = top_k or self.default_top_k
+        # 确保 top_k 非空
+        actual_top_k = top_k if top_k is not None else self.default_top_k
         retrieval_mode = mode or self.retrieval_mode
         
         # 获取基础检索器
@@ -282,16 +287,16 @@ class RAGService:
         
         # 根据模式执行检索
         if retrieval_mode == RetrievalMode.VECTOR:
-            results = await self._vector_retrieve(retriever, query, top_k, filters, score_threshold)
+            results = await self._vector_retrieve(retriever, query, actual_top_k, filters, score_threshold)
         
         elif retrieval_mode == RetrievalMode.VECTOR_RERANK:
-            results = await self._vector_rerank_retrieve(retriever, query, top_k, filters, score_threshold)
+            results = await self._vector_rerank_retrieve(retriever, query, actual_top_k, filters, score_threshold)
         
         elif retrieval_mode == RetrievalMode.HYBRID:
-            results = await self._hybrid_retrieve(retriever, query, course_id, top_k, filters, score_threshold)
+            results = await self._hybrid_retrieve(retriever, query, course_id, actual_top_k, filters, score_threshold)
         
         else:
-            results = await self._vector_retrieve(retriever, query, top_k, filters, score_threshold)
+            results = await self._vector_retrieve(retriever, query, actual_top_k, filters, score_threshold)
         
         return results
     

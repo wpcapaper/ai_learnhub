@@ -132,13 +132,19 @@ aie55_llm5_learnhub/
 git clone https://github.com/yourusername/aie55_llm5_learnhub.git
 cd aie55_llm5_learnhub
 
+# 配置环境变量（可选，修改端口等）
+cp .env.example .env
+# 编辑 .env 文件修改端口配置
+
 # 启动所有服务
 docker-compose up -d
 
-# 访问应用
-# 前端：http://localhost:3000
+# 访问应用（默认端口）
+# 前端 (C端)：http://localhost:3000
+# 管理端：http://localhost:8080
 # 后端 API：http://localhost:8000
 # API 文档：http://localhost:8000/docs
+# LLM 监控：http://localhost:9090
 ```
 
 ### 方式二：本地开发

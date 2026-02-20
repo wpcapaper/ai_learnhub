@@ -2,7 +2,10 @@
 管理端 API 路由
 
 提供课程管理、质量评估、RAG优化等管理功能
-注意：这些API应有独立的访问控制（如IP白名单）
+
+安全说明：
+- 此路由已通过 AdminIPWhitelistMiddleware 进行 IP 白名单认证
+- 所有路径参数已进行路径穿越验证
 
 所有RAG相关数据独立存储，不依赖业务数据库(app.db)
 """
@@ -34,6 +37,9 @@ from app.agent import RAGOptimizerAgent, AgentEvent
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models import Course, Chapter, Base
+
+# 安全模块
+from app.core.admin_security import validate_course_id
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -177,6 +183,7 @@ async def list_courses():
 @router.get("/courses/{course_id}", response_model=CourseInfo)
 async def get_course(course_id: str):
     """获取单个课程详情"""
+    course_id = validate_course_id(course_id)
     courses_dir = get_courses_dir()
     course_dir = courses_dir / course_id
     
@@ -238,6 +245,7 @@ async def convert_courses(background_tasks: BackgroundTasks):
 
 @router.post("/courses/convert/{course_id}", response_model=ConvertResponse)
 async def convert_single_course(course_id: str):
+    course_id = validate_course_id(course_id)
     raw_dir = get_raw_courses_dir()
     courses_dir = get_courses_dir()
     
@@ -286,6 +294,7 @@ async def convert_single_course(course_id: str):
 @router.get("/quality/{course_id}")
 async def get_quality_report(course_id: str):
     """获取课程质量评估报告"""
+    course_id = validate_course_id(course_id)
     courses_dir = get_courses_dir()
     course_dir = courses_dir / course_id
     
@@ -336,8 +345,9 @@ async def run_optimization(request: OptimizationRequest):
     
     在沙箱环境中测试不同分块策略，返回推荐配置
     """
+    course_id = validate_course_id(request.course_id)
     courses_dir = get_courses_dir()
-    course_dir = courses_dir / request.course_id
+    course_dir = courses_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -397,6 +407,7 @@ async def run_optimization(request: OptimizationRequest):
 @router.get("/rag/optimize/{course_id}")
 async def get_optimization_report(course_id: str):
     """获取已保存的优化报告"""
+    course_id = validate_course_id(course_id)
     courses_dir = get_courses_dir()
     report_path = courses_dir / course_id / "rag_optimization_report.json"
     
@@ -454,8 +465,9 @@ async def run_optimization_stream(request: OptimizationRequest):
     使用 Agent 框架执行优化，实时输出执行过程。
     返回 SSE 格式的流式数据。
     """
+    course_id = validate_course_id(request.course_id)
     courses_dir = get_courses_dir()
-    course_dir = courses_dir / request.course_id
+    course_dir = courses_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -692,6 +704,7 @@ async def import_courses_to_database():
 
 @router.post("/courses/import/{course_id}", response_model=ImportResult)
 async def import_single_course_to_database(course_id: str):
+    course_id = validate_course_id(course_id)
     db = SessionLocal()
     
     try:
@@ -823,8 +836,9 @@ async def generate_quiz_for_course(request: QuizGenerateRequest):
     从 courses 目录读取课程内容，使用 LLM 生成自测题。
     此功能为预埋接口，实际生成逻辑待实现。
     """
+    course_id = validate_course_id(request.course_id)
     courses_dir = get_courses_dir()
-    course_dir = courses_dir / request.course_id
+    course_dir = courses_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")

@@ -1,19 +1,35 @@
+# ============================================================
+# AILearn Hub Docker Compose 配置
+# ============================================================
+# 端口通过环境变量配置，复制 .env.example 为 .env 后修改
+#
+# 默认端口:
+#   Backend API:    8000
+#   Frontend (C端): 3000
+#   Admin Frontend: 8080
+#   Langfuse:       9090
+#   Redis:          6379
+#   PostgreSQL:     5432
+# ============================================================
+
 services:
+  # ==================== 核心服务 ====================
   backend:
     build:
       context: ./src/backend
       dockerfile: Dockerfile
     container_name: ailearn-backend
     env_file:
-      - ./src/backend/.env
+      - .env
     environment:
       - DATABASE_URL=sqlite:///./data/app.db
       - DEV_MODE=true
-      - SECRET_KEY=your-secret-key-change-me
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-me}
       - REDIS_URL=redis://redis:6379/0
       - LANGFUSE_HOST=http://langfuse:3000
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:8080}
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./src/backend/data:/app/data
       - ./src/backend/app:/app/app
@@ -30,35 +46,38 @@ services:
     depends_on:
       - backend
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     volumes:
       - ./src/frontend:/app
       - /app/node_modules
       - /app/.next
     environment:
       - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
     command: sh -c "npm install && npm run dev"
 
+  # ==================== 管理端 ====================
   admin-frontend:
     build:
       context: ./src/admin-frontend
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:${BACKEND_PORT:-8000}
     image: ailearn-admin-frontend:latest
     container_name: ailearn-admin-frontend
     depends_on:
       - backend
     ports:
-      - "3002:3000"
+      - "${ADMIN_FRONTEND_PORT:-8080}:3000"
     environment:
       - NODE_ENV=production
-      - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:8000
 
+  # ==================== 基础设施 ====================
   redis:
     image: redis:7-alpine
     container_name: ailearn-redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes
@@ -68,6 +87,7 @@ services:
       timeout: 3s
       retries: 5
 
+  # ==================== 监控 ====================
   langfuse:
     image: langfuse/langfuse:2
     container_name: ailearn-langfuse
@@ -75,12 +95,12 @@ services:
       langfuse-db:
         condition: service_healthy
     ports:
-      - "3001:3000"
+      - "${LANGFUSE_PORT:-9090}:3000"
     environment:
       - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
-      - NEXTAUTH_SECRET=langfuse-secret-key-change-me
+      - NEXTAUTH_SECRET=${SECRET_KEY:-langfuse-secret-key-change-me}
       - SALT=langfuse-salt-change-me
-      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_URL=http://localhost:${LANGFUSE_PORT:-9090}
       - TELEMETRY_ENABLED=false
       - ENCRYPTION_KEY=0000000000000000000000000000000000000000000000000000000000000001
     healthcheck:
@@ -93,6 +113,8 @@ services:
   langfuse-db:
     image: postgres:15-alpine
     container_name: ailearn-langfuse-db
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       - POSTGRES_USER=langfuse
       - POSTGRES_PASSWORD=langfuse

@@ -17,11 +17,27 @@ AILearn Hub的RAG（检索增强生成）系统为AI助教提供课程内容检�
 
 ## 端口说明
 
-| 服务 | 端口 | 访问地址 |
-|------|------|----------|
-| 后端API | 8000 | http://localhost:8000 |
-| C端前端 | 3000 | http://localhost:3000 |
-| Admin管理端 | 3002 | http://localhost:3002 |
+端口可通过项目根目录的 `.env` 文件配置（复制 `.env.example`）。
+
+| 服务 | 默认端口 | 访问地址 | 说明 |
+|------|----------|----------|------|
+| Backend API | 8000 | http://localhost:8000 | 核心业务 API |
+| Frontend (C端) | 3000 | http://localhost:3000 | 用户端前端 |
+| Admin Frontend | 8080 | http://localhost:8080 | 管理端前端 |
+| Langfuse | 9090 | http://localhost:9090 | LLM 监控平台 |
+
+**配置方式**：
+
+```bash
+# 复制配置文件
+cp .env.example .env
+
+# 修改端口（可选）
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+ADMIN_FRONTEND_PORT=8080
+LANGFUSE_PORT=9090
+```
 
 ---
 
