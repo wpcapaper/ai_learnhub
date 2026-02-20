@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useMemo } from 'react';
+import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -18,6 +18,20 @@ interface MarkdownReaderProps {
 export interface MarkdownReaderRef {
   /** 获取滚动容器引用，用于大纲导航控制滚动 */
   getScrollContainer: () => HTMLDivElement | null;
+}
+
+/**
+ * 将标题文本转换为 slug ID
+ * 移除特殊字符，替换空格为连字符
+ */
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '') // 保留中文、字母、数字、空格、连字符
+    .replace(/\s+/g, '-') // 空格转连字符
+    .replace(/-+/g, '-') // 多个连字符合并
+    .replace(/^-|-$/g, '') // 移除首尾连字符
+    .slice(0, 50); // 限制长度
 }
 
 function MermaidDiagram({ code }: { code: string }) {
@@ -95,16 +109,16 @@ function MermaidDiagram({ code }: { code: string }) {
   );
 }
 
-// 标题索引计数器，用于生成唯一 ID
-let headingIndex = 0;
-
 const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
   function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }, ref) {
   const contentRef = useRef<HTMLDivElement>(null);
   
-  // 重置标题索引
+  // 使用 ref 管理标题索引，避免全局变量导致的组件实例冲突
+  const headingCounterRef = useRef(0);
+  
+  // 内容变化时重置计数器
   useEffect(() => {
-    headingIndex = 0;
+    headingCounterRef.current = 0;
   }, [content]);
   
   // 暴露滚动容器给父组件
@@ -154,6 +168,17 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
     : "markdown-content";
 
   const baseFontSize = variant === 'document' ? 17 : 14;
+
+  const generateHeadingId = (children: any): string => {
+    const text = typeof children === 'string' 
+      ? children 
+      : Array.isArray(children) 
+        ? children.map(c => typeof c === 'string' ? c : '').join('')
+        : '';
+    const slug = slugify(text);
+    const index = headingCounterRef.current++;
+    return `heading-${index}-${slug || 'untitled'}`;
+  };
 
   return (
     <div
@@ -273,8 +298,8 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
               </div>
             );
           },
-          h1: ({ children }) => {
-            const id = `heading-${headingIndex++}`;
+h1: ({ children }) => {
+            const id = generateHeadingId(children);
             return (
               <h1 id={id} style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
                 {children}
@@ -282,7 +307,7 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
             );
           },
           h2: ({ children }) => {
-            const id = `heading-${headingIndex++}`;
+            const id = generateHeadingId(children);
             return (
               <h2 id={id} style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
                 {children}
@@ -290,7 +315,7 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
             );
           },
           h3: ({ children }) => {
-            const id = `heading-${headingIndex++}`;
+            const id = generateHeadingId(children);
             return (
               <h3 id={id} style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
                 {children}
@@ -347,13 +372,13 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
                 : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
               }
             </td>
-          ),
-         }}
-       >
-         {content}
-       </ReactMarkdown>
-     </div>
-   );
+),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
   }
 );
 
