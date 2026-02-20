@@ -1,5 +1,49 @@
 @import "tailwindcss";
 
+@theme {
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-tertiary: var(--background-tertiary);
+  
+  --color-foreground: var(--foreground);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-foreground-tertiary: var(--foreground-tertiary);
+  --color-foreground-title: var(--foreground-title);
+  
+  --color-primary: var(--primary);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
+  --color-primary-bg: var(--primary-bg);
+  
+  --color-success: var(--success);
+  --color-success-light: var(--success-light);
+  --color-success-dark: var(--success-dark);
+  
+  --color-warning: var(--warning);
+  --color-warning-light: var(--warning-light);
+  --color-warning-dark: var(--warning-dark);
+  
+  --color-error: var(--error);
+  --color-error-light: var(--error-light);
+  --color-error-dark: var(--error-dark);
+  
+  --color-info: var(--info);
+  --color-info-light: var(--info-light);
+  --color-info-dark: var(--info-dark);
+  
+  --color-card-bg: var(--card-bg);
+  --color-card-border: var(--card-border);
+  
+  --color-code-bg: var(--code-bg);
+  --color-code-border: var(--code-border);
+  --color-code-text: var(--code-text);
+  
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+}
+
 /* JetBrains Mono 字体 - 代码块专用 */
 @font-face {
   font-family: 'JetBrains Mono';

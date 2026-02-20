@@ -50,10 +50,10 @@ function ChaptersPageContent() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}>
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center">
-          <div className="inline-block h-8 w-8 border-2 rounded-full animate-spin" style={{ borderColor: 'var(--card-border)', borderTopColor: 'var(--primary)' }} />
-          <p className="mt-4" style={{ color: 'var(--foreground-secondary)' }}>加载中...</p>
+          <div className="inline-block h-8 w-8 border-2 rounded-full animate-spin border-card-border border-t-primary" />
+          <p className="mt-4 text-foreground-secondary">加载中...</p>
         </div>
       </div>
     );
@@ -61,10 +61,10 @@ function ChaptersPageContent() {
 
   if (error || !course) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--background)' }}>
-        <div className="text-center max-w-md p-8" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
-          <p className="mb-4" style={{ color: 'var(--error)' }}>{error || '课程不存在'}</p>
-          <button onClick={() => router.push('/courses')} className="px-6 py-2 text-white" style={{ background: 'var(--primary)', borderRadius: 'var(--radius-md)' }}>
+      <div className="min-h-screen flex items-center justify-center p-4 bg-background">
+        <div className="text-center max-w-md p-8 bg-card-bg border border-card-border rounded-lg">
+          <p className="mb-4 text-error">{error || '课程不存在'}</p>
+          <button onClick={() => router.push('/courses')} className="px-6 py-2 text-white bg-primary rounded-md">
             返回课程列表
           </button>
         </div>
@@ -73,24 +73,24 @@ function ChaptersPageContent() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: 'var(--background)' }}>
-      <nav className="sticky top-0 z-50 border-b" style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
+    <div className="min-h-screen bg-background">
+      <nav className="sticky top-0 z-50 border-b bg-card-bg border-card-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
             <div className="flex items-center gap-2">
-              <Link href="/" className="w-8 h-8 flex items-center justify-center" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>
+              <Link href="/" className="w-8 h-8 flex items-center justify-center bg-gradient-to-br from-primary to-primary-light rounded-sm">
                 <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                 </svg>
               </Link>
-              <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
-              <Link href="/courses" style={{ color: 'var(--foreground-title)' }}>选择课程</Link>
-              <span style={{ color: 'var(--foreground-tertiary)' }}>/</span>
-              <span style={{ color: 'var(--foreground-secondary)' }}>{course.title}</span>
+              <span className="text-foreground-tertiary">/</span>
+              <Link href="/courses" className="text-foreground-title hover:text-primary transition-colors">选择课程</Link>
+              <span className="text-foreground-tertiary">/</span>
+              <span className="text-foreground-secondary">{course.title}</span>
             </div>
             <div className="flex items-center gap-3">
               <ThemeSelector />
-              {user && <span className="hidden sm:block text-sm" style={{ color: 'var(--foreground-secondary)' }}>{user.nickname || user.username}</span>}
+              {user && <span className="hidden sm:block text-sm text-foreground-secondary">{user.nickname || user.username}</span>}
             </div>
           </div>
         </div>
@@ -98,8 +98,8 @@ function ChaptersPageContent() {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--foreground-title)' }}>选择章节</h1>
-          <p style={{ color: 'var(--foreground-secondary)' }}>请选择要学习的章节</p>
+          <h1 className="text-2xl font-bold mb-2 text-foreground-title">选择章节</h1>
+          <p className="text-foreground-secondary">请选择要学习的章节</p>
         </div>
 
         {chapters.length > 0 ? (
@@ -108,16 +108,15 @@ function ChaptersPageContent() {
               <div
                 key={chapter.id}
                 onClick={() => handleChapterSelect(chapter.id)}
-                className="p-5 cursor-pointer group"
-                style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}
+                className="p-5 cursor-pointer group bg-card-bg border border-card-border rounded-lg hover:border-primary transition-colors"
               >
                 <div className="flex items-start gap-4">
-                  <span className="flex-shrink-0 w-10 h-10 flex items-center justify-center font-bold" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', color: '#fff', borderRadius: 'var(--radius-sm)' }}>
+                  <span className="flex-shrink-0 w-10 h-10 flex items-center justify-center font-bold bg-gradient-to-br from-primary to-primary-light text-white rounded-sm">
                     {chapter.sort_order}
                   </span>
                   <div className="flex-1 min-w-0">
-                    <h2 className="font-semibold truncate" style={{ color: 'var(--foreground-title)' }}>{chapter.title}</h2>
-                    <p className="text-sm mt-1" style={{ color: chapter.user_progress ? 'var(--success)' : 'var(--foreground-tertiary)' }}>
+                    <h2 className="font-semibold truncate text-foreground-title">{chapter.title}</h2>
+                    <p className={`text-sm mt-1 ${chapter.user_progress ? 'text-success' : 'text-foreground-tertiary'}`}>
                       {chapter.user_progress ? `已完成 ${chapter.user_progress.last_percentage.toFixed(0)}%` : '未开始'}
                     </p>
                   </div>
@@ -126,12 +125,12 @@ function ChaptersPageContent() {
             ))}
           </div>
         ) : (
-          <div className="text-center py-12" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
-            <p style={{ color: 'var(--foreground-secondary)' }}>暂无可用章节</p>
+          <div className="text-center py-12 bg-card-bg border border-card-border rounded-lg">
+            <p className="text-foreground-secondary">暂无可用章节</p>
           </div>
         )}
 
-        <button onClick={() => router.push('/courses')} className="mt-8 flex items-center gap-1 text-sm" style={{ color: 'var(--primary)' }}>
+        <button onClick={() => router.push('/courses')} className="mt-8 flex items-center gap-1 text-sm text-primary hover:text-primary-light transition-colors">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           返回课程列表
         </button>
@@ -142,7 +141,7 @@ function ChaptersPageContent() {
 
 export default function ChaptersPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--background)' }}><p style={{ color: 'var(--foreground-secondary)' }}>加载中...</p></div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center bg-background"><p className="text-foreground-secondary">加载中...</p></div>}>
       <ChaptersPageContent />
     </Suspense>
   );

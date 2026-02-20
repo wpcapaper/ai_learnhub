@@ -268,15 +268,6 @@ import { LaTeXRenderer } from '@/components/LaTeXRenderer';
 - 错题统计
 - 一键重试错题
 
-### 统计页面 (`app/stats/page.tsx`)
-
-学习数据分析：
-- 总答题数
-- 正确率
-- 已掌握题目数
-- 待复习题目数
-- 学习进度
-
 ### 课程页面 (`app/courses/page.tsx`)
 
 课程管理：

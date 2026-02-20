@@ -84,6 +84,18 @@ function ExamPageContent() {
     }
   };
 
+  /**
+   * 提交单题答案（考试模式）
+   *
+   * 业务逻辑说明：
+   * - 考试模式下，只保存答案，不立即判断对错
+   * - 提交成功后更新前端状态，标记该题已作答
+   * - 提交过程中禁用按钮，防止重复提交
+   * - 失败时提示用户，不阻塞后续操作
+   *
+   * @param questionId 题目ID
+   * @param answer 用户选择的答案
+   */
   const submitAnswer = async (questionId: string, answer: string) => {
     if (!user || !exam || submitting) return;
 
@@ -101,7 +113,18 @@ function ExamPageContent() {
     }
   };
 
+  /**
+   * 切换多选题选项选择
+   *
+   * 业务逻辑说明：
+   * - 支持选项选择后可修改：如果题目已回答，从user_answer初始化selectedOptions
+   * - 切换选项状态：已选则移除，未选则添加
+   * - 更新前端状态，为提交答案做准备
+   *
+   * @param optionKey 选项键名（如A、B、C等）
+   */
   const toggleOption = (optionKey: string) => {
+    // 如果题目已回答且selectedOptions为空，从user_answer初始化
     const userAnswer = currentQuestion?.user_answer;
     if (userAnswer != null && selectedOptions.size === 0) {
       const existingOptions = userAnswer.split(',');

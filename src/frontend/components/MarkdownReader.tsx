@@ -25,9 +25,14 @@ function MermaidDiagram({ code }: { code: string }) {
     const renderDiagram = async () => {
       try {
         const mermaid = (await import('mermaid')).default;
+        
+        // 检测当前主题：优先 data-theme 属性，其次 dark class
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || 
+                       document.documentElement.classList.contains('dark');
+        
         mermaid.initialize({
           startOnLoad: false,
-          theme: 'default',
+          theme: isDark ? 'dark' : 'default',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         });
         

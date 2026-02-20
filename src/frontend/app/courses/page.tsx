@@ -49,6 +49,14 @@ export default function CoursesPage() {
     setUser(null);
   };
 
+  /**
+   * 处理刷题模式点击
+   *
+   * 关键业务逻辑：
+   * - 默认使用 allow_new_round=false 检查是否有未刷过的题
+   * - 如果返回题目数=0 且课程题目总数>0，弹窗询问是否开启新轮
+   * - 如果用户确认，则使用 allow_new_round=true 跳转到刷题页面
+   */
   const handleStartQuiz = async (course: Course) => {
     if (!user) {
       alert('请先登录');
@@ -58,16 +66,21 @@ export default function CoursesPage() {
     setCheckingQuiz(course.id);
 
     try {
+      // 关键业务逻辑：默认 allow_new_round=false，只检查当前轮次未刷过的题
       const nextQuestions = await apiClient.getNextQuestions(user.id, course.id, 1, false);
 
+      // 关键业务逻辑：如果没有未刷过的题，且课程有题目，询问是否开启新轮
       if (nextQuestions.length === 0 && (course.total_questions || 0) > 0) {
         const shouldStartNewRound = confirm('当前轮次已刷完，是否开启新的轮次？');
         if (shouldStartNewRound) {
+          // 用户确认开启新轮，跳转到刷题页面（后端会自动开启新轮）
           window.location.href = `/quiz?course_id=${course.id}`;
         } else {
+          // 用户取消，不做任何操作
           setCheckingQuiz(null);
         }
       } else {
+        // 仍有未刷过的题，直接跳转到刷题页面
         window.location.href = `/quiz?course_id=${course.id}`;
       }
     } catch (error) {

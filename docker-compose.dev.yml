@@ -1,0 +1,42 @@
+# ============================================================
+# AILearn Hub Docker Compose 开发环境配置
+# ============================================================
+# 使用方式: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# 此配置覆盖生产配置，启用开发模式（热更新）
+# ============================================================
+
+services:
+  frontend:
+    image: node:20-alpine
+    working_dir: /app
+    container_name: ailearn-frontend-dev
+    depends_on:
+      - backend
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    volumes:
+      - ./src/frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
+    command: sh -c "npm install && npm run dev"
+
+  admin-frontend:
+    image: node:20-alpine
+    working_dir: /app
+    container_name: ailearn-admin-frontend-dev
+    depends_on:
+      - backend
+    ports:
+      - "${ADMIN_FRONTEND_PORT:-8080}:3000"
+    volumes:
+      - ./src/admin-frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_ADMIN_API_URL=http://localhost:${BACKEND_PORT:-8000}"
+    command: sh -c "npm install && npm run dev"
