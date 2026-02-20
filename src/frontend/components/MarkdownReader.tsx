@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -12,6 +12,12 @@ interface MarkdownReaderProps {
   variant?: 'document' | 'chat';
   courseDirName?: string;
   chapterPath?: string;
+}
+
+/** 暴露给父组件的方法 */
+export interface MarkdownReaderRef {
+  /** 获取滚动容器引用，用于大纲导航控制滚动 */
+  getScrollContainer: () => HTMLDivElement | null;
 }
 
 function MermaidDiagram({ code }: { code: string }) {
@@ -89,8 +95,22 @@ function MermaidDiagram({ code }: { code: string }) {
   );
 }
 
-export default function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }: MarkdownReaderProps) {
+// 标题索引计数器，用于生成唯一 ID
+let headingIndex = 0;
+
+const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
+  function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }, ref) {
   const contentRef = useRef<HTMLDivElement>(null);
+  
+  // 重置标题索引
+  useEffect(() => {
+    headingIndex = 0;
+  }, [content]);
+  
+  // 暴露滚动容器给父组件
+  useImperativeHandle(ref, () => ({
+    getScrollContainer: () => contentRef.current,
+  }), []);
   
   const rewriteImageUrl = (src: string): string => {
     if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
@@ -253,21 +273,30 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
               </div>
             );
           },
-          h1: ({ children }) => (
-            <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
-              {children}
-            </h1>
-          ),
-          h2: ({ children }) => (
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
-              {children}
-            </h2>
-          ),
-          h3: ({ children }) => (
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
-              {children}
-            </h3>
-          ),
+          h1: ({ children }) => {
+            const id = `heading-${headingIndex++}`;
+            return (
+              <h1 id={id} style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
+                {children}
+              </h1>
+            );
+          },
+          h2: ({ children }) => {
+            const id = `heading-${headingIndex++}`;
+            return (
+              <h2 id={id} style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
+                {children}
+              </h2>
+            );
+          },
+          h3: ({ children }) => {
+            const id = `heading-${headingIndex++}`;
+            return (
+              <h3 id={id} style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
+                {children}
+              </h3>
+            );
+          },
           p: ({ children }) => {
             return (
               <p style={{ marginBottom: '1rem', color: 'var(--foreground)', lineHeight: 1.8 }}>
@@ -319,10 +348,13 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
               }
             </td>
           ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  );
-}
+         }}
+       >
+         {content}
+       </ReactMarkdown>
+     </div>
+   );
+  }
+);
+
+export default MarkdownReader;
