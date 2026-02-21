@@ -16,6 +16,7 @@ from .user_course_progress import UserCourseProgress
 from .answer_history import UserAnswerHistory
 from .chapter import Chapter
 from .reading_progress import ReadingProgress
+from .chapter_kb_config import ChapterKBConfig
 
 __all__ = [
     "Base",
@@ -33,6 +34,7 @@ __all__ = [
     "ReadingProgress",
     "Conversation",
     "Message",
+    "ChapterKBConfig",
 ]
 
 

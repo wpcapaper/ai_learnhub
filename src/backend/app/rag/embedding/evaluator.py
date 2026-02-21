@@ -1,11 +1,13 @@
 """Embedding模型评估工具"""
 
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, TYPE_CHECKING
 import numpy as np
 from dataclasses import dataclass
-import pandas as pd
 
 from .models import EmbeddingModel
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 @dataclass
@@ -160,7 +162,7 @@ class EmbeddingEvaluator:
         models: List[EmbeddingModel],
         test_set: TestSet,
         top_k: int = 5
-    ) -> pd.DataFrame:
+    ):
         """
         对比多个模型
         
@@ -172,6 +174,8 @@ class EmbeddingEvaluator:
         Returns:
             对比结果DataFrame
         """
+        import pandas as pd
+        
         results = []
         
         for model in models:

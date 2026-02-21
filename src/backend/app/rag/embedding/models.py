@@ -126,6 +126,37 @@ class OpenAIEmbedder(EmbeddingModel):
         return self.model
 
 
+class OllamaEmbedder(EmbeddingModel):
+    """Ollama Embedding 服务"""
+    
+    def __init__(self, endpoint: str, model: str = "nomic-embed-text", dimension: int = 768, timeout: int = 60):
+        self.endpoint = endpoint
+        self.model = model
+        self._dimension = dimension
+        self.timeout = timeout
+    
+    def encode(self, texts: List[str], **kwargs) -> List[List[float]]:
+        embeddings = []
+        
+        with httpx.Client(timeout=self.timeout) as client:
+            for text in texts:
+                response = client.post(
+                    self.endpoint,
+                    json={"model": self.model, "prompt": text}
+                )
+                response.raise_for_status()
+                data = response.json()
+                embeddings.append(data["embedding"])
+        
+        return embeddings
+    
+    def get_dimension(self) -> int:
+        return self._dimension
+    
+    def get_model_name(self) -> str:
+        return f"ollama/{self.model}"
+
+
 class RemoteEmbedder(EmbeddingModel):
     """调用本地/远程 Embedding 服务（如 Ollama、vLLM、自建服务）"""
     
@@ -224,10 +255,21 @@ class EmbeddingModelFactory:
             if not endpoint:
                 raise ValueError("RAG本地Embedding服务地址未配置，请设置 RAG_EMBEDDING_SERVICE_URL 环境变量")
             
+            model_name = local_config.get("model", "nomic-embed-text")
+            
+            # Ollama 使用 /api/embeddings 端点
+            if "/api/embeddings" in endpoint:
+                return OllamaEmbedder(
+                    endpoint=endpoint,
+                    model=model_name,
+                    dimension=local_config.get("dimension", 1024),
+                    timeout=local_config.get("timeout", 60),
+                )
+            
             return RemoteEmbedder(
                 endpoint=endpoint,
                 dimension=local_config.get("dimension", 768),
-                model_name=local_config.get("model", "local-embedding"),
+                model_name=model_name,
                 timeout=local_config.get("timeout", 30),
             )
         

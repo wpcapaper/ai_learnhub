@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 import uuid
 
 from .metadata import Chunk, extract_metadata
+from .version import CHUNK_STRATEGY_VERSION, CURRENT_STRATEGY_VERSION
 
 
 class ChunkingStrategy(ABC):
@@ -37,7 +38,7 @@ class ChunkingStrategy(ABC):
 
 
 class SemanticChunkingStrategy(ChunkingStrategy):
-    """语义切割策略 - 按Markdown结构切割"""
+    """语义切割策略 - 按Markdown结构切割，保持标题与内容的关联"""
     
     def __init__(
         self,
@@ -61,13 +62,16 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         course_id: str,
         chapter_id: Optional[str] = None,
         chapter_title: Optional[str] = None,
+        source_file: Optional[str] = None,
         **kwargs
     ) -> List[Chunk]:
-        """按语义边界切割"""
+        """按语义边界切割，保持标题与内容的关联"""
         chunks = []
         
-        # 按Markdown结构分割
-        sections = self._split_by_structure(content)
+        source = source_file or chapter_title or chapter_id
+        
+        # 按Markdown标题层级分割成sections
+        sections = self._split_by_headers(content)
         
         position = 0
         for section in sections:
@@ -75,28 +79,20 @@ class SemanticChunkingStrategy(ChunkingStrategy):
             if not section_text:
                 continue
             
-            # 如果段落太长，进一步切割
+            # 如果section太大，需要进一步切割
             if len(section_text) > self.max_chunk_size:
-                sub_chunks = self._split_long_section(
+                sub_chunks = self._split_large_section(
                     section_text,
                     course_id,
                     chapter_id,
                     chapter_title,
-                    position
+                    source,
+                    position,
+                    section.get("header_level", 0)
                 )
                 chunks.extend(sub_chunks)
                 position += len(sub_chunks)
             else:
-                # 如果段落太短，尝试合并
-                if len(section_text) < self.min_chunk_size and chunks:
-                    # 合并到上一个chunk
-                    last_chunk = chunks[-1]
-                    merged_text = last_chunk.text + "\n\n" + section_text
-                    if len(merged_text) <= self.max_chunk_size:
-                        last_chunk.text = merged_text
-                        continue
-                
-                # 创建新chunk
                 chunk = Chunk(
                     chunk_id=str(uuid.uuid4()),
                     text=section_text,
@@ -105,6 +101,7 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                         course_id,
                         chapter_id,
                         chapter_title,
+                        source,
                         position,
                         section.get("type", "paragraph")
                     )
@@ -114,137 +111,293 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         
         return chunks
     
-    def _split_by_structure(self, content: str) -> List[Dict[str, Any]]:
-        """按Markdown结构分割"""
+    def _split_by_headers(self, content: str) -> List[Dict[str, Any]]:
+        """
+        按Markdown标题分割，保持标题与后续内容的关联
+        
+        每个section包含标题及其下的所有内容（直到下一个同级或更高级标题）
+        """
         sections = []
-        
-        # 按标题、代码块、列表等分割
         lines = content.split('\n')
-        current_section = {"text": "", "type": "paragraph"}
         
+        current_section = {"text": "", "type": "paragraph", "header_level": 0, "has_code": False}
         in_code_block = False
-        code_block_lang = ""
+        in_table = False
         
-        for line in lines:
-            # 检测代码块
-            if line.strip().startswith('```'):
-                if in_code_block:
-                    # 结束代码块
-                    current_section["text"] += line + "\n"
-                    sections.append(current_section)
-                    current_section = {"text": "", "type": "paragraph"}
-                    in_code_block = False
-                else:
-                    # 开始代码块
-                    if current_section["text"].strip():
-                        sections.append(current_section)
-                    code_block_lang = line.strip()[3:].strip()
-                    current_section = {
-                        "text": line + "\n",
-                        "type": f"code_{code_block_lang}" if code_block_lang else "code"
-                    }
-                    in_code_block = True
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            
+            # 代码块处理（不解析内部内容）
+            if stripped.startswith('```'):
+                in_code_block = not in_code_block
+                current_section["has_code"] = True
+                current_section["text"] += line + "\n"
                 continue
             
             if in_code_block:
                 current_section["text"] += line + "\n"
                 continue
             
-            # 检测标题
-            if line.strip().startswith('#'):
-                if current_section["text"].strip():
-                    sections.append(current_section)
-                # 标题单独成段
-                sections.append({
-                    "text": line + "\n",
-                    "type": "heading"
-                })
-                current_section = {"text": "", "type": "paragraph"}
+            # 表格处理
+            if '|' in stripped and stripped.startswith('|'):
+                in_table = True
+                current_section["text"] += line + "\n"
                 continue
+            elif in_table and not stripped.startswith('|'):
+                in_table = False
             
-            # 检测列表
-            if re.match(r'^\s*[-*+]\s+', line) or re.match(r'^\s*\d+\.\s+', line):
-                if current_section["type"] != "list":
+            # 检测标题
+            header_match = re.match(r'^(#{1,6})\s+(.+)$', stripped)
+            if header_match:
+                header_level = len(header_match.group(1))
+                
+                # 如果是顶级标题（#）或与当前section同级或更高级，开始新section
+                if header_level <= current_section.get("header_level", 0) or current_section.get("header_level", 0) == 0:
                     if current_section["text"].strip():
+                        current_section["type"] = "code_block" if current_section["has_code"] else "paragraph"
                         sections.append(current_section)
-                    current_section = {"text": line + "\n", "type": "list"}
+                    current_section = {
+                        "text": line + "\n",
+                        "type": "heading",
+                        "header_level": header_level,
+                        "has_code": False
+                    }
                 else:
+                    # 子标题，追加到当前section
                     current_section["text"] += line + "\n"
                 continue
             
-            # 空行分割段落
-            if not line.strip():
-                if current_section["text"].strip():
-                    sections.append(current_section)
-                    current_section = {"text": "", "type": "paragraph"}
-                continue
-            
-            # 普通文本
+            # 普通内容追加到当前section
             current_section["text"] += line + "\n"
         
         # 添加最后一个section
         if current_section["text"].strip():
+            current_section["type"] = "code_block" if current_section["has_code"] else "paragraph"
             sections.append(current_section)
         
         return sections
     
-    def _split_long_section(
+    def _split_large_section(
         self,
         text: str,
         course_id: str,
         chapter_id: Optional[str],
         chapter_title: Optional[str],
-        base_position: int
+        source_file: Optional[str],
+        base_position: int,
+        header_level: int = 0
     ) -> List[Chunk]:
-        """切割过长的段落"""
+        """
+        切割过大的section，优先保持代码块和表格的完整性
+        """
         chunks = []
         
-        # 按句子分割
-        sentences = re.split(r'([。！？\n])', text)
-        current_chunk = ""
-        position = 0
+        # 先尝试按子结构分割
+        sub_sections = self._split_preserve_blocks(text)
         
-        for i in range(0, len(sentences), 2):
-            sentence = sentences[i] + (sentences[i+1] if i+1 < len(sentences) else "")
+        position = 0
+        current_chunk_text = ""
+        
+        for sub in sub_sections:
+            sub_text = sub["text"].strip()
+            sub_type = sub.get("type", "paragraph")
             
-            if len(current_chunk) + len(sentence) > self.max_chunk_size:
-                if current_chunk:
+            # 代码块和表格完全不拆分，保持完整性
+            if sub_type in ("code_block", "table"):
+                if current_chunk_text:
                     chunk = Chunk(
                         chunk_id=str(uuid.uuid4()),
-                        text=current_chunk.strip(),
+                        text=current_chunk_text.strip(),
                         metadata=extract_metadata(
-                            current_chunk,
+                            current_chunk_text,
                             course_id,
                             chapter_id,
                             chapter_title,
+                            source_file,
                             base_position + position,
                             "paragraph"
                         )
                     )
                     chunks.append(chunk)
                     position += 1
+                    current_chunk_text = ""
                 
-                # 重叠处理
-                if chunks and self.overlap_size > 0:
-                    overlap_text = current_chunk[-self.overlap_size:]
-                    current_chunk = overlap_text + sentence
-                else:
-                    current_chunk = sentence
+                # 完整保留代码块/表格，即使超过 max_chunk_size
+                chunk = Chunk(
+                    chunk_id=str(uuid.uuid4()),
+                    text=sub_text,
+                    metadata=extract_metadata(
+                        sub_text,
+                        course_id,
+                        chapter_id,
+                        chapter_title,
+                        source_file,
+                        base_position + position,
+                        sub_type
+                    )
+                )
+                chunks.append(chunk)
+                position += 1
             else:
-                current_chunk += sentence
+                # 普通文本
+                if len(current_chunk_text) + len(sub_text) + 2 <= self.max_chunk_size:
+                    current_chunk_text += "\n\n" + sub_text if current_chunk_text else sub_text
+                else:
+                    if current_chunk_text:
+                        chunk = Chunk(
+                            chunk_id=str(uuid.uuid4()),
+                            text=current_chunk_text.strip(),
+                            metadata=extract_metadata(
+                                current_chunk_text,
+                                course_id,
+                                chapter_id,
+                                chapter_title,
+                                source_file,
+                                base_position + position,
+                                "paragraph"
+                            )
+                        )
+                        chunks.append(chunk)
+                        position += 1
+                    current_chunk_text = sub_text
         
-        # 添加最后一个chunk
-        if current_chunk.strip():
+        # 添加最后的chunk
+        if current_chunk_text.strip():
             chunk = Chunk(
                 chunk_id=str(uuid.uuid4()),
-                text=current_chunk.strip(),
+                text=current_chunk_text.strip(),
                 metadata=extract_metadata(
-                    current_chunk,
+                    current_chunk_text,
                     course_id,
                     chapter_id,
                     chapter_title,
+                    source_file,
                     base_position + position,
                     "paragraph"
+                )
+            )
+            chunks.append(chunk)
+        
+        return chunks
+    
+    def _split_preserve_blocks(self, text: str) -> List[Dict[str, Any]]:
+        """
+        分割文本但保持代码块和表格的完整性
+        同时将代码块前的简短说明文字与代码块合并
+        """
+        sections = []
+        lines = text.split('\n')
+        
+        current = {"text": "", "type": "paragraph"}
+        in_code = False
+        in_table = False
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            # 代码块开始
+            if stripped.startswith('```'):
+                if not in_code:
+                    # 代码块开始：检查前面是否有简短说明（小于200字符）
+                    preceding_text = current["text"].strip()
+                    if preceding_text and len(preceding_text) < 200:
+                        # 简短说明，合并到代码块
+                        current["text"] = preceding_text + "\n" + line + "\n"
+                        current["type"] = "code_block"
+                    else:
+                        # 较长说明，单独成段
+                        if preceding_text:
+                            sections.append(current)
+                        current = {"text": line + "\n", "type": "code_block"}
+                    in_code = True
+                else:
+                    # 代码块结束
+                    current["text"] += line + "\n"
+                    sections.append(current)
+                    current = {"text": "", "type": "paragraph"}
+                    in_code = False
+                continue
+            
+            if in_code:
+                current["text"] += line + "\n"
+                continue
+            
+            # 表格检测
+            is_table_row = stripped.startswith('|') and '|' in stripped[1:]
+            if is_table_row:
+                if not in_table:
+                    if current["text"].strip():
+                        sections.append(current)
+                    current = {"text": line + "\n", "type": "table"}
+                    in_table = True
+                else:
+                    current["text"] += line + "\n"
+                continue
+            elif in_table:
+                # 表格结束
+                sections.append(current)
+                current = {"text": line + "\n", "type": "paragraph"}
+                in_table = False
+                continue
+            
+            current["text"] += line + "\n"
+        
+        if current["text"].strip():
+            sections.append(current)
+        
+        return sections
+    
+    def _split_code_by_lines(
+        self,
+        code_text: str,
+        course_id: str,
+        chapter_id: Optional[str],
+        chapter_title: Optional[str],
+        source_file: Optional[str],
+        base_position: int,
+        content_type: str
+    ) -> List[Chunk]:
+        """按行拆分过大的代码块"""
+        chunks = []
+        lines = code_text.split('\n')
+        
+        current = ""
+        position = 0
+        
+        for line in lines:
+            if len(current) + len(line) + 1 > self.max_chunk_size - 100:
+                if current.strip():
+                    chunk = Chunk(
+                        chunk_id=str(uuid.uuid4()),
+                        text=current.strip(),
+                        metadata=extract_metadata(
+                            current,
+                            course_id,
+                            chapter_id,
+                            chapter_title,
+                            source_file,
+                            base_position + position,
+                            content_type
+                        )
+                    )
+                    chunks.append(chunk)
+                    position += 1
+                current = line + "\n"
+            else:
+                current += line + "\n"
+        
+        if current.strip():
+            chunk = Chunk(
+                chunk_id=str(uuid.uuid4()),
+                text=current.strip(),
+                metadata=extract_metadata(
+                    current,
+                    course_id,
+                    chapter_id,
+                    chapter_title,
+                    source_file,
+                    base_position + position,
+                    content_type
                 )
             )
             chunks.append(chunk)
@@ -274,11 +427,14 @@ class FixedSizeChunkingStrategy(ChunkingStrategy):
         course_id: str,
         chapter_id: Optional[str] = None,
         chapter_title: Optional[str] = None,
+        source_file: Optional[str] = None,
         **kwargs
     ) -> List[Chunk]:
         """按固定大小切割"""
         chunks = []
         text = content.strip()
+        
+        source = source_file or chapter_title or chapter_id
         
         position = 0
         start = 0
@@ -304,6 +460,7 @@ class FixedSizeChunkingStrategy(ChunkingStrategy):
                         course_id,
                         chapter_id,
                         chapter_title,
+                        source,
                         position,
                         "paragraph"
                     )

@@ -56,11 +56,15 @@ except ImportError as e:
 
 ADMIN_AVAILABLE = False
 admin = None
+admin_kb = None
 try:
     from app.api import admin as admin_module
     if _check_admin_configured():
         admin = admin_module
         ADMIN_AVAILABLE = True
+        # 知识库管理API
+        from app.api import admin_kb as admin_kb_module
+        admin_kb = admin_kb_module
 except ImportError as e:
     logger.info(f"Admin 模块未安装，相关接口不可用: {e}")
 
@@ -124,6 +128,9 @@ if RAG_AVAILABLE and rag:
 # Admin 路由（弱依赖）
 if ADMIN_AVAILABLE and admin:
     app.include_router(admin.router, prefix="/api", tags=["Admin"])
+    # 知识库管理路由
+    if admin_kb:
+        app.include_router(admin_kb.router, prefix="/api", tags=["知识库管理"])
 
 # 挂载 courses 目录为静态文件服务，用于课程图片等资源访问
 # Docker 环境中 courses 目录挂载在 /app/courses

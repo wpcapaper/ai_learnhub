@@ -81,7 +81,7 @@ class AsyncTask:
             error_message=data.get("error_message"),
             created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.utcnow(),
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
-            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at"]) else None,
+            completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
             input_data=data.get("input_data", {}),
             user_id=data.get("user_id"),
             course_id=data.get("course_id"),

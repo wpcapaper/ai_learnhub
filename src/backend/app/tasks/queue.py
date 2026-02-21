@@ -180,3 +180,113 @@ def cancel_job(job_id: str) -> bool:
     except Exception as e:
         logger.error(f"取消任务失败: {e}")
         return False
+
+
+def cleanup_stale_jobs(queue_name: str = "indexing", max_age_seconds: int = 3600) -> int:
+    """
+    清理僵尸任务（started 状态但没有活跃 worker 的任务）
+    
+    Args:
+        queue_name: 队列名称
+        max_age_seconds: 最大存活时间（秒）
+    
+    Returns:
+        清理的任务数量
+    """
+    try:
+        from rq import Queue, Worker
+        from rq.job import Job
+        from redis import Redis
+        from datetime import datetime, timedelta
+        
+        redis_conn = Redis.from_url(get_redis_url())
+        queue = Queue(queue_name, connection=redis_conn)
+        
+        # 获取活跃的 worker
+        active_workers = Worker.all(connection=redis_conn)
+        active_worker_names = {w.name for w in active_workers}
+        
+        cleaned = 0
+        
+        # 检查 started 状态的任务
+        started_job_ids = redis_conn.smembers(f"rq:wip:{queue_name}")
+        
+        for job_id in started_job_ids:
+            job_id = job_id.decode() if isinstance(job_id, bytes) else job_id
+            try:
+                job = Job.fetch(job_id, connection=redis_conn)
+                
+                # 如果任务太老或者 worker 不活跃，标记为失败
+                if job.started_at:
+                    age = (datetime.utcnow() - job.started_at).total_seconds()
+                    if age > max_age_seconds:
+                        job.set_status("failed", exc_info="Worker 可能已崩溃，任务被自动清理")
+                        cleaned += 1
+                        logger.info(f"清理僵尸任务: {job_id}")
+            except Exception as e:
+                logger.warning(f"检查任务 {job_id} 失败: {e}")
+        
+        return cleaned
+    
+    except Exception as e:
+        logger.error(f"清理僵尸任务失败: {e}")
+        return 0
+
+
+def acquire_course_lock(course_id: str, task_id: str, ttl: int = 3600) -> bool:
+    """
+    获取课程级别的分布式锁
+    
+    Args:
+        course_id: 课程 ID
+        task_id: 任务 ID
+        ttl: 锁的过期时间（秒）
+    
+    Returns:
+        是否获取成功
+    """
+    try:
+        from redis import Redis
+        
+        redis_conn = Redis.from_url(get_redis_url())
+        lock_key = f"indexing:lock:{course_id}"
+        
+        # SET NX EX 是原子操作
+        result = redis_conn.set(lock_key, task_id, nx=True, ex=ttl)
+        return result is not None
+    
+    except Exception as e:
+        logger.error(f"获取课程锁失败: {e}")
+        return False
+
+
+def release_course_lock(course_id: str, task_id: str) -> bool:
+    """
+    释放课程级别的分布式锁
+    
+    Args:
+        course_id: 课程 ID
+        task_id: 任务 ID
+    
+    Returns:
+        是否释放成功
+    """
+    try:
+        from redis import Redis
+        
+        redis_conn = Redis.from_url(get_redis_url())
+        lock_key = f"indexing:lock:{course_id}"
+        
+        # 只有锁的持有者才能释放
+        current_holder = redis_conn.get(lock_key)
+        if current_holder:
+            current_holder = current_holder.decode() if isinstance(current_holder, bytes) else current_holder
+            if current_holder == task_id:
+                redis_conn.delete(lock_key)
+                return True
+        
+        return False
+    
+    except Exception as e:
+        logger.error(f"释放课程锁失败: {e}")
+        return False

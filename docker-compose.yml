@@ -39,6 +39,26 @@ services:
       - redis
       - langfuse
 
+  worker:
+    build:
+      context: ./src/backend
+      dockerfile: Dockerfile
+    container_name: ailearn-worker
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=sqlite:///./data/app.db
+      - REDIS_URL=redis://redis:6379/0
+      - LANGFUSE_HOST=http://langfuse:3000
+    volumes:
+      - ./src/backend/data:/app/data
+      - ./src/backend/app:/app/app
+      - ./courses:/app/courses
+    command: uv run python -c "from rq import Worker, Queue; from redis import Redis; redis_conn = Redis.from_url('redis://redis:6379/0'); worker = Worker([Queue('default', connection=redis_conn), Queue('indexing', connection=redis_conn)], connection=redis_conn); worker.work()"
+    depends_on:
+      - redis
+      - langfuse
+
   frontend:
     build:
       context: ./src/frontend

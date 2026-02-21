@@ -1,5 +1,6 @@
 from typing import List, Dict, Any, Optional
 import os
+import re
 import yaml
 import logging
 
@@ -16,12 +17,67 @@ from .multilingual import LanguageDetector, QueryExpander
 logger = logging.getLogger(__name__)
 
 
+def normalize_collection_name(name: str) -> str:
+    """
+    将任意字符串转换为合法的 ChromaDB collection 名称
+    ChromaDB 要求: 3-512字符，只允许 [a-zA-Z0-9._-]，必须以字母或数字开头和结尾
+    """
+    import hashlib
+    
+    # 移除或替换非法字符
+    normalized = re.sub(r'[^a-zA-Z0-9._-]', '_', name)
+    
+    # 确保以字母或数字开头
+    if normalized and not normalized[0].isalnum():
+        normalized = 'c_' + normalized
+    
+    # 确保以字母或数字结尾
+    if normalized and not normalized[-1].isalnum():
+        normalized = normalized + '_0'
+    
+    # 如果规范化后太短或为空，使用 hash
+    if len(normalized) < 3:
+        hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+        normalized = f"col_{hash_suffix}"
+    
+    # 限制长度
+    if len(normalized) > 512:
+        hash_suffix = hashlib.md5(name.encode()).hexdigest()[:8]
+        normalized = normalized[:503] + '_' + hash_suffix
+    
+    return normalized
+
+
 class RetrievalMode:
     """检索模式枚举"""
     VECTOR = "vector"          # 纯向量检索
     KEYWORD = "keyword"        # 纯关键词检索
     HYBRID = "hybrid"          # 混合检索（向量+关键词）
     VECTOR_RERANK = "vector_rerank"  # 向量+重排序
+
+
+def _resolve_env_vars(value: Any) -> Any:
+    """
+    递归解析配置中的环境变量
+    支持 ${VAR_NAME:default} 语法
+    """
+    if isinstance(value, str):
+        pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
+        
+        def replace_env_var(match):
+            var_name = match.group(1)
+            default_value = match.group(2) if match.group(2) is not None else ""
+            return os.getenv(var_name, default_value)
+        
+        return re.sub(pattern, replace_env_var, value)
+    
+    elif isinstance(value, dict):
+        return {k: _resolve_env_vars(v) for k, v in value.items()}
+    
+    elif isinstance(value, list):
+        return [_resolve_env_vars(item) for item in value]
+    
+    return value
 
 
 def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -33,7 +89,6 @@ def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
         config_path = os.getenv("RAG_CONFIG_PATH")
     
     if config_path is None:
-        # 默认配置路径
         config_path = os.path.join(
             os.path.dirname(__file__),
             "../../config/rag_config.yaml"
@@ -41,9 +96,9 @@ def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     
     if os.path.exists(config_path):
         with open(config_path, "r", encoding="utf-8") as f:
-            return yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f) or {}
+            return _resolve_env_vars(raw_config)
     
-    # 返回默认配置
     return {
         "embedding": {"provider": "openai", "openai": {"model": "text-embedding-3-small"}},
         "vector_store": {"persist_directory": "./data/chroma"},
@@ -180,7 +235,7 @@ class RAGService:
     
     def _get_vector_store(self, course_id: str) -> ChromaVectorStore:
         """获取或创建课程的向量存储"""
-        collection_name = f"course_{course_id}"
+        collection_name = normalize_collection_name(f"course_{course_id}")
         return ChromaVectorStore(
             collection_name=collection_name,
             persist_directory=self.persist_directory
@@ -200,6 +255,7 @@ class RAGService:
         course_id: str,
         chapter_id: Optional[str] = None,
         chapter_title: Optional[str] = None,
+        source_file: Optional[str] = None,
         clear_existing: bool = False
     ) -> int:
         """
@@ -210,6 +266,7 @@ class RAGService:
             course_id: 课程 ID
             chapter_id: 章节 ID
             chapter_title: 章节标题
+            source_file: 源文件路径（用于跨设备复用）
             clear_existing: 是否清除已有索引
         
         Returns:
@@ -220,7 +277,8 @@ class RAGService:
             content=content,
             course_id=course_id,
             chapter_id=chapter_id,
-            chapter_title=chapter_title
+            chapter_title=chapter_title,
+            source_file=source_file or chapter_title
         )
         
         # 2. 过滤不适合 embedding 的内容（如纯代码、公式等）

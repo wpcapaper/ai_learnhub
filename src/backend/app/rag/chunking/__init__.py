@@ -3,6 +3,7 @@
 from .strategies import ChunkingStrategy, SemanticChunkingStrategy, FixedSizeChunkingStrategy
 from .filters import ContentFilter
 from .metadata import Chunk, extract_metadata
+from .code_processor import CodeBlockProcessor, ProcessedCodeBlock
 
 __all__ = [
     "ChunkingStrategy",
@@ -11,4 +12,6 @@ __all__ = [
     "ContentFilter",
     "Chunk",
     "extract_metadata",
+    "CodeBlockProcessor",
+    "ProcessedCodeBlock",
 ]

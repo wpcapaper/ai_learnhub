@@ -95,6 +95,14 @@ class DatabaseCourseInfo(BaseModel):
     created_at: Optional[str]
 
 
+class DatabaseChapterInfo(BaseModel):
+    """数据库中的章节信息"""
+    id: str
+    course_id: str
+    title: str
+    sort_order: int
+
+
 class ImportResult(BaseModel):
     """导入结果"""
     success: bool
@@ -588,6 +596,28 @@ async def list_database_courses():
             ))
         
         return result
+    finally:
+        db.close()
+
+
+@router.get("/database/courses/{course_id}/chapters", response_model=List[DatabaseChapterInfo])
+async def list_database_chapters(course_id: str):
+    db = SessionLocal()
+    try:
+        chapters = db.query(Chapter).filter(
+            Chapter.course_id == course_id,
+            Chapter.is_deleted == False
+        ).order_by(Chapter.sort_order).all()
+        
+        return [
+            DatabaseChapterInfo(
+                id=chapter.id,
+                course_id=chapter.course_id,
+                title=chapter.title,
+                sort_order=chapter.sort_order
+            )
+            for chapter in chapters
+        ]
     finally:
         db.close()
 

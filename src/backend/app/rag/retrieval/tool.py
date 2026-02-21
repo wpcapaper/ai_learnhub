@@ -1,7 +1,9 @@
-from typing import List
+from typing import List, TYPE_CHECKING
 
 from .retriever import RetrievalResult
-from ..service import RAGService
+
+if TYPE_CHECKING:
+    from ..service import RAGService
 
 
 async def retrieve_course_content(
@@ -20,6 +22,8 @@ async def retrieve_course_content(
     Returns:
         格式化的检索结果，包含原文引用
     """
+    from ..service import RAGService
+    
     rag_service = RAGService.get_instance()
     results = await rag_service.retrieve(query, course_id, top_k)
     
