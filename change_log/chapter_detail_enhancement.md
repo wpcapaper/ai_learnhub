@@ -122,3 +122,130 @@
 1. 大纲导航可考虑添加展开/折叠功能
 2. 章节导航可添加键盘快捷键支持
 3. 字数统计可考虑添加阅读进度指示
+
+---
+
+## Bug 修复记录 (2026-02-21)
+
+### 问题描述
+
+1. **目录列太窄** - w-48 (192px) 不够显示完整标题
+2. **切换章节后目录点不动** - 滚动容器绑定失效，点击无响应
+3. **大纲点击不跳转** - 点击目录项详情页不滚动
+4. **三列布局宽度固定** - 用户无法自定义调整列宽
+
+### 根本原因分析
+
+**滚动容器冲突**: `page.tsx` 外层有 `overflow-y-auto`，而 `MarkdownReader` 内部也有 `overflow-y-auto`，导致：
+- `OutlineNav` 获取到的是外层容器，而非实际滚动的 `MarkdownReader` 容器
+- 切换章节后 React ref 未及时更新，事件监听器绑定到旧容器
+
+### 修复内容
+
+#### 1. 移除外层滚动容器
+**文件**: `src/frontend/app/learning/page.tsx`
+
+```diff
+- <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+-   <MarkdownReader ... />
+- </div>
++ <MarkdownReader ... />
+```
+
+让 `MarkdownReader` 成为唯一的滚动容器。
+
+#### 2. 改进 scrollContainer 获取逻辑
+**文件**: `src/frontend/app/learning/page.tsx`
+
+- 切换章节时先 `setScrollContainer(null)` 强制 OutlineNav 重新绑定
+- 添加重试机制，确保 ref 准备好后再获取
+
+#### 3. OutlineNav 事件监听优化
+**文件**: `src/frontend/components/OutlineNav.tsx`
+
+- 新增 `boundScrollContainerRef` 追踪已绑定的容器
+- 切换容器时先移除旧事件监听，再绑定新容器
+
+#### 4. 增加目录列宽度
+**文件**: `src/frontend/app/learning/page.tsx`
+
+- 默认宽度从 192px 增加到 260px
+
+#### 5. 实现三列可拖动调整宽度
+**文件**: `src/frontend/app/learning/page.tsx`
+
+新增 `ResizeHandle` 组件，实现原生拖拽调整列宽：
+
+| 列 | 默认宽度 | 最小宽度 | 最大宽度 |
+|----|---------|---------|---------|
+| 左侧目录 | 260px | 180px | 400px |
+| 右侧 AI | 360px | 280px | 500px |
+
+**实现要点**:
+- 使用 `mousedown/mousemove/mouseup` 事件实现拖拽
+- 拖拽时分隔条高亮显示
+- 宽度变化实时生效，无额外依赖
+
+### 文件变更
+
+| 文件 | 变更 |
+|------|------|
+| `src/frontend/app/learning/page.tsx` | 新增 ResizeHandle 组件，移除外层滚动容器，添加列宽状态 |
+| `src/frontend/components/OutlineNav.tsx` | 优化事件监听绑定/解绑逻辑 |
+| `src/frontend/components/MarkdownReader.tsx` | 调整样式适配新布局 |
+
+### 验证清单
+
+- [x] 目录列宽度适中，标题显示完整
+- [x] 切换章节后目录可正常点击
+- [x] 点击大纲项详情页正确滚动
+- [x] 拖拽分隔条可调整列宽
+- [x] 滚动时进度条正常联动
+- [x] TypeScript 类型检查通过
+
+---
+
+## Bug 修复记录 #2 (2026-02-21)
+
+### 问题描述
+
+1. **点击目录跳转后进度条不联动** - `onProgressChange` 只更新后端，UI 未实时更新
+2. **切换章节后目录不可点击** - 问题仍存在
+3. **拖动功能不工作** - 分隔条太窄，且只在 xl 屏幕显示
+
+### 修复内容
+
+#### 1. 进度条实时联动
+**文件**: `src/frontend/app/learning/page.tsx`
+
+- 新增 `readingProgress` state 存储实时进度
+- 在 `handleProgressChange` 中同步更新 state
+- UI 使用 `readingProgress` 替代后端返回的进度值
+- 添加 `transition-all duration-300` 使进度条变化更平滑
+
+#### 2. 改进 scrollContainer 获取逻辑
+**文件**: `src/frontend/app/learning/page.tsx`
+
+- 使用 `requestAnimationFrame` 轮询获取容器，最多重试 10 次
+- 确保 DOM 完全渲染后再获取 ref
+- 章节切换时重置 `readingProgress` 为后端保存的进度
+
+#### 3. 修复 OutlineNav 事件监听
+**文件**: `src/frontend/components/OutlineNav.tsx`
+
+- 将 `handleScroll` 和 `updateHeadingPositions` 加入 useEffect 依赖数组
+- 确保容器变化时使用最新的事件处理函数
+
+#### 4. 改进拖动功能
+**文件**: `src/frontend/app/learning/page.tsx`
+
+- 分隔条从 xl 屏幕改为 lg 屏幕显示（1024px 起）
+- 增加拖动时的视觉反馈（body cursor 和 userSelect）
+- 分隔条宽度从 4px 增加到 8px，更容易点击
+
+### 验证清单 #2
+
+- [ ] 点击目录跳转后进度条实时更新
+- [ ] 切换章节后目录可正常点击
+- [ ] lg 屏幕以上可拖动调整列宽
+- [ ] 拖动时有明显的视觉反馈

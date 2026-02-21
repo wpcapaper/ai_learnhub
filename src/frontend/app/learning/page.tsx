@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense, useRef, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { Panel, Group, Separator } from 'react-resizable-panels';
 import { apiClient } from '@/lib/api';
 import type { Course, User, Chapter } from '@/lib/api';
 import MarkdownReader, { MarkdownReaderRef } from '@/components/MarkdownReader';
@@ -23,23 +24,87 @@ function LearningPageContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // MarkdownReader 组件引用，用于大纲导航控制滚动
+  // 阅读进度（只在章节切换时更新 state，滚动时用 ref）
+  const [readingProgress, setReadingProgress] = useState(0);
+  const readingProgressRef = useRef(0);
+  
+  // MarkdownReader 组件引用
   const markdownReaderRef = useRef<MarkdownReaderRef>(null);
   
-  // 滚动容器 state，用于在 ref 可用后触发重新渲染
+  // 滚动容器
   const [scrollContainer, setScrollContainer] = useState<HTMLDivElement | null>(null);
   
-  // 当 currentChapter 变化时，尝试获取滚动容器
-  useEffect(() => {
-    if (currentChapter) {
-      // 使用 setTimeout 确保 MarkdownReader 已经渲染
-      const timer = setTimeout(() => {
-        const container = markdownReaderRef.current?.getScrollContainer() || null;
-        setScrollContainer(container);
-      }, 100);
-      return () => clearTimeout(timer);
+  // 保存上一个章节 ID，用于同步进度
+  const prevChapterIdRef = useRef<string | null>(null);
+  
+  // 同步指定章节的进度到后端
+  const syncProgressToBackend = useCallback(async (chapterId: string, userId: string) => {
+    const progressKey = `chapter_progress_${chapterId}`;
+    const saved = localStorage.getItem(progressKey);
+    
+    if (saved) {
+      try {
+        const { position, percentage } = JSON.parse(saved);
+        await apiClient.updateReadingProgress(
+          chapterId,
+          userId,
+          { position, percentage }
+        );
+      } catch (err) {
+        console.error('同步进度失败:', err);
+      }
     }
-  }, [currentChapter]);
+  }, []);
+  
+  // 更新进度条 UI（直接操作 DOM，避免触发重渲染）
+  const updateProgressBar = useCallback((percentage: number) => {
+    readingProgressRef.current = percentage;
+    const bar = document.getElementById('reading-progress-bar');
+    const text = document.getElementById('reading-progress-text');
+    if (bar) {
+      bar.style.width = `${percentage}%`;
+    }
+    if (text) {
+      text.textContent = `${percentage.toFixed(0)}%`;
+    }
+  }, []);
+  
+  // 当 currentChapter 变化时，获取滚动容器
+  useEffect(() => {
+    if (!currentChapter) return;
+    
+    // 同步上一个章节的进度
+    if (prevChapterIdRef.current && user) {
+      syncProgressToBackend(prevChapterIdRef.current, user.id);
+    }
+    
+    // 更新 ref
+    prevChapterIdRef.current = currentChapter.id;
+    
+    setScrollContainer(null);
+    
+    // 章节切换时更新进度 state（只在这里更新 state）
+    const savedProgress = currentChapter.user_progress?.last_percentage || 0;
+    setReadingProgress(savedProgress);
+    updateProgressBar(savedProgress);
+    
+    let attempts = 0;
+    const maxAttempts = 30;
+    
+    const tryGetContainer = () => {
+      const container = markdownReaderRef.current?.getScrollContainer() || null;
+      if (container) {
+        setScrollContainer(container);
+      } else if (attempts < maxAttempts) {
+        attempts++;
+        setTimeout(tryGetContainer, 100);
+      }
+    };
+    
+    const timer = setTimeout(tryGetContainer, 200);
+    
+    return () => clearTimeout(timer);
+  }, [currentChapter?.id, user, syncProgressToBackend, updateProgressBar]);
   
   // 计算上一章和下一章信息
   const { prevChapter, nextChapter } = useMemo(() => {
@@ -102,24 +167,37 @@ function LearningPageContent() {
     loadData();
   }, [user, courseId, initialChapterId]);
 
-  // 切换到指定章节
   const handleChapterChange = useCallback((chapterId: string) => {
     router.push(`/learning?course_id=${courseId}&chapter_id=${chapterId}`);
   }, [router, courseId]);
 
   const handleProgressChange = useCallback(async (position: number, percentage: number) => {
-    if (!user || !currentChapter) return;
-
-    try {
-      await apiClient.updateReadingProgress(
-        currentChapter.id,
-        user.id,
-        { last_position: position, last_percentage: percentage }
-      );
-    } catch (err) {
-      console.error('更新进度失败:', err);
+    // 直接更新 DOM，不触发 state 更新
+    updateProgressBar(percentage);
+    
+    if (currentChapter) {
+      const progressKey = `chapter_progress_${currentChapter.id}`;
+      localStorage.setItem(progressKey, JSON.stringify({
+        position,
+        percentage,
+        timestamp: Date.now(),
+      }));
     }
-  }, [user, currentChapter]);
+  }, [currentChapter, updateProgressBar]);
+  
+  // 页面离开时同步进度
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (prevChapterIdRef.current && user) {
+        syncProgressToBackend(prevChapterIdRef.current, user.id);
+      }
+    };
+    
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [user, syncProgressToBackend]);
 
   const handleChapterComplete = useCallback(async () => {
     if (!user || !currentChapter) return;
@@ -189,56 +267,66 @@ function LearningPageContent() {
           返回章节列表
         </button>
 
-        <div className="flex-1 flex gap-4 min-h-0">
+        <Group orientation="horizontal" className="flex-1 min-h-0">
           {/* 左侧大纲导航 - 大屏幕显示 */}
-          <div className="hidden xl:block w-48 flex-shrink-0" style={{ minWidth: '180px' }}>
-            {currentChapter?.content_markdown && scrollContainer && (
-              <OutlineNav 
-                content={currentChapter.content_markdown}
-                scrollContainer={scrollContainer}
-              />
-            )}
-          </div>
+          <Panel defaultSize="15%" minSize="10%" maxSize="25%" className="hidden lg:block">
+            <div 
+              className="h-full flex flex-col"
+              style={{ 
+                background: 'var(--card-bg)',
+                border: '1px solid var(--card-border)',
+                borderRadius: 'var(--radius-lg)',
+              }}
+            >
+              {currentChapter?.content_markdown && scrollContainer && (
+                <OutlineNav 
+                  key={currentChapter.id}
+                  content={currentChapter.content_markdown}
+                  scrollContainer={scrollContainer}
+                />
+              )}
+            </div>
+          </Panel>
+          
+          <Separator className="hidden lg:block w-1.5 hover:bg-primary/30 transition-colors" style={{ background: 'var(--card-border)' }} />
 
           {/* 中间内容区域 */}
-          <div className="flex-[3] lg:flex-[4] flex flex-col min-w-0 overflow-hidden" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
-            {/* 章节标题和统计信息 */}
-            <div className="px-4 sm:px-6 py-3 flex-shrink-0 border-b" style={{ borderColor: 'var(--card-border)' }}>
-              <div className="flex flex-col gap-2">
-                {/* 标题行 */}
-                <div className="flex items-center justify-between">
-                  <h1 className="text-lg font-bold truncate" style={{ color: 'var(--foreground-title)' }}>{currentChapter?.title}</h1>
-                  {currentChapter?.user_progress && (
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      <div className="h-1.5 w-24 rounded-full overflow-hidden" style={{ background: 'var(--background-tertiary)' }}>
-                        <div className="h-full rounded-full" style={{ width: `${currentChapter.user_progress.last_percentage}%`, background: 'linear-gradient(90deg, var(--primary), var(--primary-light))' }} />
+          <Panel minSize="30%">
+            <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
+              {/* 章节标题和统计信息 */}
+              <div className="px-4 sm:px-6 py-3 flex-shrink-0 border-b" style={{ borderColor: 'var(--card-border)' }}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <h1 className="text-lg font-bold truncate" style={{ color: 'var(--foreground-title)' }}>{currentChapter?.title}</h1>
+                    {currentChapter?.user_progress && (
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="h-1.5 w-24 rounded-full overflow-hidden" style={{ background: 'var(--background-tertiary)' }}>
+                          <div id="reading-progress-bar" className="h-full rounded-full" style={{ width: `${readingProgress}%`, background: 'linear-gradient(90deg, var(--primary), var(--primary-light))' }} />
+                        </div>
+                        <span id="reading-progress-text" className="text-xs" style={{ color: 'var(--primary)' }}>{readingProgress.toFixed(0)}%</span>
+                        {!currentChapter.user_progress.is_completed && (
+                          <button onClick={handleChapterComplete} className="px-3 py-1.5 text-xs text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>标记完成</button>
+                        )}
+                        {currentChapter.user_progress.is_completed && (
+                          <span className="px-2 py-1 text-xs" style={{ background: 'var(--success-light)', color: 'var(--success-dark)', borderRadius: 'var(--radius-full)' }}>✓ 已完成</span>
+                        )}
                       </div>
-                      <span className="text-xs" style={{ color: 'var(--primary)' }}>{currentChapter.user_progress.last_percentage.toFixed(0)}%</span>
-                      {!currentChapter.user_progress.is_completed && (
-                        <button onClick={handleChapterComplete} className="px-3 py-1.5 text-xs text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-sm)' }}>标记完成</button>
-                      )}
-                      {currentChapter.user_progress.is_completed && (
-                        <span className="px-2 py-1 text-xs" style={{ background: 'var(--success-light)', color: 'var(--success-dark)', borderRadius: 'var(--radius-full)' }}>✓ 已完成</span>
-                      )}
+                    )}
+                  </div>
+                  
+                  {currentChapter?.content_markdown && (
+                    <div className="flex items-center justify-between">
+                      <ContentStats content={currentChapter.content_markdown} />
+                      <span className="text-xs" style={{ color: 'var(--foreground-tertiary)' }}>
+                        章节 {currentChapter?.sort_order || 1} / {chapters.length}
+                      </span>
                     </div>
                   )}
                 </div>
-                
-                {/* 字数统计和预计用时 */}
-                {currentChapter?.content_markdown && (
-                  <div className="flex items-center justify-between">
-                    <ContentStats content={currentChapter.content_markdown} />
-                    <span className="text-xs" style={{ color: 'var(--foreground-tertiary)' }}>
-                      章节 {currentChapter?.sort_order || 1} / {chapters.length}
-                    </span>
-                  </div>
-                )}
               </div>
-            </div>
 
-            {/* Markdown 内容 */}
-            {currentChapter && (
-              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4">
+              {/* Markdown 内容 */}
+              {currentChapter && (
                 <MarkdownReader
                   ref={markdownReaderRef}
                   content={currentChapter.content_markdown}
@@ -246,72 +334,80 @@ function LearningPageContent() {
                   courseDirName={currentChapter.course_dir_name}
                   chapterPath={currentChapter.file_path}
                 />
-              </div>
-            )}
+              )}
 
-            {/* 章节导航 - 上一章/下一章 */}
-            <div 
-              className="flex-shrink-0 border-t px-4 sm:px-6 py-3 flex items-center justify-between"
-              style={{ borderColor: 'var(--card-border)' }}
-            >
-              {/* 上一章按钮 */}
-              <button
-                onClick={() => prevChapter && handleChapterChange(prevChapter.id)}
-                disabled={!prevChapter}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors"
-                style={{ 
-                  color: prevChapter ? 'var(--primary)' : 'var(--foreground-tertiary)',
-                  background: prevChapter ? 'var(--primary-bg)' : 'var(--background-secondary)',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: prevChapter ? 'pointer' : 'not-allowed',
-                  opacity: prevChapter ? 1 : 0.5,
-                }}
+              {/* 章节导航 - 上一章/下一章 */}
+              <div 
+                className="flex-shrink-0 border-t px-4 sm:px-6 py-3 flex items-center justify-between"
+                style={{ borderColor: 'var(--card-border)' }}
               >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-                <span className="hidden sm:inline">上一章</span>
-                {prevChapter && <span className="hidden md:inline truncate max-w-[120px]">: {prevChapter.title}</span>}
-              </button>
-              
-              {/* 章节位置指示 */}
-              <span className="text-xs px-2" style={{ color: 'var(--foreground-tertiary)' }}>
-                {chapters.findIndex(ch => ch.id === currentChapter?.id) + 1} / {chapters.length}
-              </span>
-              
-              {/* 下一章按钮 */}
-              <button
-                onClick={() => nextChapter && handleChapterChange(nextChapter.id)}
-                disabled={!nextChapter}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors"
-                style={{ 
-                  color: nextChapter ? 'var(--primary)' : 'var(--foreground-tertiary)',
-                  background: nextChapter ? 'var(--primary-bg)' : 'var(--background-secondary)',
-                  borderRadius: 'var(--radius-sm)',
-                  cursor: nextChapter ? 'pointer' : 'not-allowed',
-                  opacity: nextChapter ? 1 : 0.5,
-                }}
-              >
-                {nextChapter && <span className="hidden md:inline truncate max-w-[120px]">{nextChapter.title}: </span>}
-                <span className="hidden sm:inline">下一章</span>
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
+                <button
+                  onClick={() => prevChapter && handleChapterChange(prevChapter.id)}
+                  disabled={!prevChapter}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors"
+                  style={{ 
+                    color: prevChapter ? 'var(--primary)' : 'var(--foreground-tertiary)',
+                    background: prevChapter ? 'var(--primary-bg)' : 'var(--background-secondary)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: prevChapter ? 'pointer' : 'not-allowed',
+                    opacity: prevChapter ? 1 : 0.5,
+                  }}
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span className="hidden sm:inline">上一章</span>
+                  {prevChapter && <span className="hidden md:inline truncate max-w-[120px]">: {prevChapter.title}</span>}
+                </button>
+                
+                <span className="text-xs px-2" style={{ color: 'var(--foreground-tertiary)' }}>
+                  {chapters.findIndex(ch => ch.id === currentChapter?.id) + 1} / {chapters.length}
+                </span>
+                
+                <button
+                  onClick={() => nextChapter && handleChapterChange(nextChapter.id)}
+                  disabled={!nextChapter}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors"
+                  style={{ 
+                    color: nextChapter ? 'var(--primary)' : 'var(--foreground-tertiary)',
+                    background: nextChapter ? 'var(--primary-bg)' : 'var(--background-secondary)',
+                    borderRadius: 'var(--radius-sm)',
+                    cursor: nextChapter ? 'pointer' : 'not-allowed',
+                    opacity: nextChapter ? 1 : 0.5,
+                  }}
+                >
+                  {nextChapter && <span className="hidden md:inline truncate max-w-[120px]">{nextChapter.title}: </span>}
+                  <span className="hidden sm:inline">下一章</span>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+              </div>
             </div>
-          </div>
+          </Panel>
 
+          <Separator className="hidden lg:block w-1.5 hover:bg-primary/30 transition-colors" style={{ background: 'var(--card-border)' }} />
+          
           {/* 右侧 AI 助手 */}
-          <div className="flex-1 min-w-0 lg:min-w-[320px] lg:max-w-[380px] flex-shrink-0 overflow-hidden" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
-            {user ? (
-              <AIAssistant chapterId={currentChapter?.id || ''} userId={user.id} />
-            ) : (
-              <div className="h-full flex items-center justify-center p-8">
-                <p style={{ color: 'var(--foreground-tertiary)' }}>请先登录以使用 AI 助手</p>
-              </div>
-            )}
-          </div>
-        </div>
+          <Panel defaultSize="28%" minSize="20%" maxSize="40%" className="hidden lg:block">
+            <div 
+              className="h-full flex flex-col overflow-hidden"
+              style={{ 
+                background: 'var(--card-bg)', 
+                border: '1px solid var(--card-border)', 
+                borderRadius: 'var(--radius-lg)' 
+              }}
+            >
+              {user ? (
+                <AIAssistant chapterId={currentChapter?.id || ''} userId={user.id} />
+              ) : (
+                <div className="h-full flex items-center justify-center p-8">
+                  <p style={{ color: 'var(--foreground-tertiary)' }}>请先登录以使用 AI 助手</p>
+                </div>
+              )}
+            </div>
+          </Panel>
+        </Group>
       </div>
     </div>
   );
