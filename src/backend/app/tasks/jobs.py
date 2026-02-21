@@ -348,20 +348,16 @@ def index_chapter(
         
         content = chapter_path.read_text(encoding="utf-8")
         
-        # 使用课程级别的 collection
-        collection_name = normalize_collection_name(f"course_{course_id}")
+        collection_name = normalize_collection_name(f"course_local_{course_id}")
         
         store = ChromaVectorStore(
             collection_name=collection_name,
             persist_directory=rag_service.persist_directory
         )
         
-        # 只有在 clear_existing=True 时才删除整个 collection
-        # 否则只删除当前章节的旧版本数据
         if clear_existing:
             try:
                 store.delete_collection()
-                # 重新获取 store（因为 collection 已被删除）
                 store = ChromaVectorStore(
                     collection_name=collection_name,
                     persist_directory=rag_service.persist_directory

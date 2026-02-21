@@ -324,19 +324,23 @@ export default function KnowledgeBasePage() {
     setBatchIndexing(true);
     setBatchProgress('正在加入队列...');
     
+    // course_id 使用目录名（用于找文件）
+    const courseId = selectedCourse.id;
+    // temp_ref 使用 course_code（用于唯一标识）
+    const courseCode = selectedCourse.code;
+    
     const chapters = selectedCourse.chapters.map(ch => ({
       file: ch.file,
-      temp_ref: `${selectedCourse.id}/${ch.file}`,
+      temp_ref: `${courseCode}/${ch.file}`,
       chapter_id: ch.realChapterId
     }));
     
-    const res = await adminApi.reindexCourse(selectedCourse.id, chapters, true);
+    const res = await adminApi.reindexCourse(courseId, chapters, true);
     
     if (res.success && res.data) {
       setBatchProgress(`已加入队列，正在处理...`);
       
-      // 立即刷新待处理任务列表
-      const tasks = await fetchPendingTasks(selectedCourse.id);
+      const tasks = await fetchPendingTasks(courseId);
       
       // 更新章节状态为处理中
       setCourses(prev => prev.map(c => {
@@ -548,6 +552,65 @@ export default function KnowledgeBasePage() {
         )}
       </div>
 
+      {selectedCourse && (
+        <div className="mb-4 p-3 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-gray-400">
+              已索引: <span className="text-cyan-400 font-medium">{getIndexedCount().indexed}</span> / {getIndexedCount().total} 章节
+            </div>
+            <div className="flex items-center gap-2">
+              {batchIndexing && (
+                <>
+                  <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm text-purple-400">{batchProgress}</span>
+                </>
+              )}
+              <button
+                onClick={handleBatchIndex}
+                disabled={batchIndexing || !ragStatus?.ready}
+                className="btn btn-primary text-sm"
+              >
+                {batchIndexing ? '索引中...' : '一键索引全部章节'}
+              </button>
+              {selectedCourse.isImported && (
+                <button
+                  onClick={handleSyncCourseToOnline}
+                  disabled={syncingCourse}
+                  className="btn btn-secondary text-sm"
+                >
+                  {syncingCourse ? '同步中...' : '一键同步到线上'}
+                </button>
+              )}
+            </div>
+          </div>
+          
+          {pendingTasks.size > 0 && (
+            <div className="mt-3 pt-3 border-t border-[rgba(255,255,255,0.05)]">
+              <div className="text-xs text-purple-300 mb-2">正在处理的章节：</div>
+              <div className="space-y-1">
+                {Array.from(pendingTasks.values()).map(task => (
+                  <div key={task.task_id} className="flex items-center gap-2 text-xs">
+                    <div className={`w-2 h-2 rounded-full ${
+                      task.status === 'started' ? 'bg-green-400 animate-pulse' :
+                      task.status === 'queued' ? 'bg-yellow-400' :
+                      'bg-gray-400'
+                    }`} />
+                    <span className="text-gray-300">{task.chapter_file}</span>
+                    <span className={`text-xs ${
+                      task.status === 'started' ? 'text-green-400' :
+                      task.status === 'queued' ? 'text-yellow-400' :
+                      'text-gray-500'
+                    }`}>
+                      {task.status === 'started' ? '处理中' : task.status === 'queued' ? '排队中' : task.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex gap-4 mb-6">
         <div className="flex-1">
           <label className="block text-sm text-gray-400 mb-2">选择章节</label>
@@ -564,77 +627,7 @@ export default function KnowledgeBasePage() {
             ))}
           </select>
         </div>
-        <div className="flex flex-col gap-2 justify-end">
-          <button
-            onClick={handleBatchIndex}
-            disabled={batchIndexing || !ragStatus?.ready}
-            className="btn btn-primary whitespace-nowrap"
-          >
-            {batchIndexing ? '索引中...' : '一键索引全部章节'}
-          </button>
-          {selectedCourse?.isImported && (
-            <button
-              onClick={handleSyncCourseToOnline}
-              disabled={syncingCourse}
-              className="btn btn-secondary whitespace-nowrap text-sm"
-            >
-              {syncingCourse ? (
-                <span className="flex items-center gap-2">
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  同步中...
-                </span>
-              ) : '一键同步到线上'}
-            </button>
-          )}
-        </div>
       </div>
-
-      {selectedCourse && (
-        <div className="mb-6 space-y-3">
-          <div className="flex items-center justify-between p-3 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)]">
-            <div className="text-sm text-gray-400">
-              已索引: <span className="text-cyan-400 font-medium">{getIndexedCount().indexed}</span> / {getIndexedCount().total} 章节
-            </div>
-            {batchIndexing && (
-              <div className="flex items-center gap-2">
-                <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin" />
-                <span className="text-sm text-purple-400">{batchProgress}</span>
-              </div>
-            )}
-          </div>
-          
-          {/* 显示每个正在处理的章节进度 */}
-          {pendingTasks.size > 0 && (
-            <div className="p-3 rounded-lg bg-[rgba(139,92,246,0.05)] border border-[rgba(139,92,246,0.2)]">
-              <div className="text-sm text-purple-300 mb-2">正在处理的章节：</div>
-              <div className="space-y-1">
-                {Array.from(pendingTasks.values()).map(task => (
-                  <div key={task.task_id} className="flex items-center gap-2 text-sm">
-                    <div className={`w-2 h-2 rounded-full ${
-                      task.status === 'started' ? 'bg-green-400 animate-pulse' :
-                      task.status === 'queued' ? 'bg-yellow-400' :
-                      'bg-gray-400'
-                    }`} />
-                    <span className="text-gray-300">{task.chapter_file}</span>
-                    <span className={`text-xs ${
-                      task.status === 'started' ? 'text-green-400' :
-                      task.status === 'queued' ? 'text-yellow-400' :
-                      'text-gray-500'
-                    }`}>
-                      {task.status === 'started' ? '处理中' :
-                       task.status === 'queued' ? '等待中' :
-                       task.status}
-                    </span>
-                    {task.error && (
-                      <span className="text-xs text-red-400">{task.error}</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="flex gap-2 mb-6">
         {[

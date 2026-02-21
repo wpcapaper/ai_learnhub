@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 import uuid
 import time
+import logging
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
@@ -26,6 +27,8 @@ from app.models import Chapter, ChapterKBConfig
 from app.rag.service import RAGService, normalize_collection_name
 from app.rag.vector_store import ChromaVectorStore
 from app.tasks import enqueue_task, get_job_status, index_chapter, index_course
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin/kb", tags=["知识库管理"])
 
@@ -255,14 +258,14 @@ async def get_chapter_kb_config_by_ref(
     
     chunk_count = 0
     try:
-        # 从 temp_ref 提取 course_id 和 chapter_file
-        course_id = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
+        # 从 temp_ref 提取 course_code 和 chapter_file
+        course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
         chapter_file = temp_ref.split("/")[1] if "/" in temp_ref else None
         
-        # 使用课程级别的 collection
+        # 本地数据源使用 course_local_{course_code}
         rag_service = RAGService.get_instance()
         store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_{course_id}"),
+            collection_name=normalize_collection_name(f"course_local_{course_code}"),
             persist_directory=rag_service.persist_directory
         )
         
@@ -415,15 +418,22 @@ async def sync_chunks_to_db(
         
         rag_service = RAGService.get_instance()
         
-        course_id = temp_ref.split("/")[0]
-        collection_name = normalize_collection_name(f"course_{course_id}")
-        store = ChromaVectorStore(
-            collection_name=collection_name,
+        course_code = temp_ref.split("/")[0]
+        
+        # 本地数据源
+        local_store = ChromaVectorStore(
+            collection_name=normalize_collection_name(f"course_local_{course_code}"),
             persist_directory=rag_service.persist_directory
         )
         
-        # 步骤1：从 ChromaDB 获取本地分块（chapter_id = temp_ref）
-        all_chunks = store.get_all_chunks()
+        # 线上数据源
+        online_store = ChromaVectorStore(
+            collection_name=normalize_collection_name(f"course_online_{course_code}"),
+            persist_directory=rag_service.persist_directory
+        )
+        
+        # 步骤1：从本地数据源获取分块
+        all_chunks = local_store.get_all_chunks()
         local_chunk_ids = [
             chunk["id"] for chunk in all_chunks
             if chunk.get("metadata", {}).get("chapter_id") == temp_ref
@@ -439,7 +449,7 @@ async def sync_chunks_to_db(
             }
         
         # 获取本地分块及其 embeddings
-        local_chunks = store.get_chunks_with_embeddings(local_chunk_ids)
+        local_chunks = local_store.get_chunks_with_embeddings(local_chunk_ids)
         
         # 按 position 排序
         local_chunks.sort(key=lambda x: x.get("metadata", {}).get("position", 0))
@@ -478,20 +488,17 @@ async def sync_chunks_to_db(
             else:
                 new_embeddings.append(emb)
         
-        # 步骤3：获取旧的线上分块（chapter_id = UUID）
+        # 步骤3：获取旧的线上分块
+        online_chunks = online_store.get_all_chunks()
         old_synced_ids = [
-            chunk["id"] for chunk in all_chunks
+            chunk["id"] for chunk in online_chunks
             if chunk.get("metadata", {}).get("chapter_id") == chapter_id
             and chunk["id"].startswith(f"sync_{chapter_id_hash}_")
         ]
         
-        # 步骤4：添加新分块（带 embeddings）
-        if new_chunks_data and new_embeddings:
-            store.add_chunks(new_chunks_data, new_embeddings)
-        
-        # 步骤5：删除旧的线上分块（新分块成功后才删除）
+        # 步骤5：删除旧的线上分块
         if old_synced_ids:
-            store.delete_chunks(old_synced_ids)
+            online_store.delete_chunks(old_synced_ids)
         
         chunk_count = len(new_chunks_data)
         
@@ -535,16 +542,41 @@ async def sync_course_to_online(
         from app.rag.chunking.version import CURRENT_STRATEGY_VERSION
         
         rag_service = RAGService.get_instance()
-        store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_{course_code}"),
+        
+        # 查找课程目录（使用目录名，不是 code）
+        courses_base_dir = Path(__file__).parent.parent.parent / "courses"
+        course_dir = None
+        for d in courses_base_dir.iterdir():
+            if d.is_dir():
+                course_json = d / "course.json"
+                if course_json.exists():
+                    import json
+                    data = json.loads(course_json.read_text(encoding="utf-8"))
+                    if data.get("code") == course_code:
+                        course_dir = d
+                        break
+        
+        if not course_dir:
+            raise HTTPException(status_code=404, detail="找不到课程目录")
+        
+        # 使用目录名作为 collection 标识
+        dir_name = course_dir.name
+        
+        # 本地数据源
+        local_store = ChromaVectorStore(
+            collection_name=normalize_collection_name(f"course_local_{dir_name}"),
             persist_directory=rag_service.persist_directory
         )
         
-        all_chunks = store.get_all_chunks()
+        # 线上数据源
+        online_store = ChromaVectorStore(
+            collection_name=normalize_collection_name(f"course_online_{dir_name}"),
+            persist_directory=rag_service.persist_directory
+        )
         
-        # 获取本地课程章节信息
-        courses_dir = Path(__file__).parent.parent.parent / "courses" / course_code
-        course_json_path = courses_dir / "course.json"
+        all_chunks = local_store.get_all_chunks()
+        
+        course_json_path = course_dir / "course.json"
         
         local_chapters = {}
         if course_json_path.exists():
@@ -560,25 +592,23 @@ async def sync_course_to_online(
         db_chapters = db.query(Chapter).filter(Chapter.course_id == course.id).all()
         db_chapter_map = {ch.title: ch for ch in db_chapters}
         
-        # 按 chapter_id（temp_ref 格式）分组本地分块
+        # 按 chapter_id（目录名格式）分组本地分块
         chapters_chunks = {}
         for chunk in all_chunks:
             meta = chunk.get("metadata", {})
             chapter_id = meta.get("chapter_id", "")
-            if chapter_id and chapter_id.startswith(f"{course_code}/"):
+            if chapter_id and chapter_id.startswith(f"{dir_name}/"):
                 chapters_chunks.setdefault(chapter_id, []).append(chunk)
         
         total_synced = 0
         total_chunks = 0
         
         for temp_ref, chunks in chapters_chunks.items():
-            # 从 temp_ref 提取文件名，匹配数据库章节
-            file_name = temp_ref.split("/")[-1] if "/" in temp_ref else temp_ref
+            file_path = temp_ref[len(f"{dir_name}/"):] if temp_ref.startswith(f"{dir_name}/") else temp_ref
             
-            # 通过文件名找标题，再找数据库章节
             db_chapter = None
             for title, file in local_chapters.items():
-                if file == file_name:
+                if file == file_path:
                     db_chapter = db_chapter_map.get(title)
                     break
             
@@ -587,7 +617,7 @@ async def sync_course_to_online(
             
             # 获取带 embedding 的分块
             chunk_ids = [c["id"] for c in chunks]
-            local_chunks = store.get_chunks_with_embeddings(chunk_ids)
+            local_chunks = local_store.get_chunks_with_embeddings(chunk_ids)
             local_chunks.sort(key=lambda x: x.get("metadata", {}).get("position", 0))
             
             if not local_chunks:
@@ -627,7 +657,7 @@ async def sync_course_to_online(
                     new_embeddings.append(emb)
             
             if new_chunks_data and new_embeddings:
-                store.add_chunks(new_chunks_data, new_embeddings)
+                online_store.add_chunks(new_chunks_data, new_embeddings)
                 total_synced += 1
                 total_chunks += len(new_chunks_data)
         
@@ -809,14 +839,13 @@ async def list_chapter_chunks_by_ref(
     search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    # 从 temp_ref 提取 course_id（格式：course_id/chapter_file）
-    course_id = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
+    course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
     chapter_file = temp_ref.split("/")[1] if "/" in temp_ref else None
     
     try:
         rag_service = RAGService.get_instance()
         store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_{course_id}"),
+            collection_name=normalize_collection_name(f"course_local_{course_code}"),
             persist_directory=rag_service.persist_directory
         )
         all_chunks = store.get_all_chunks()
@@ -881,6 +910,7 @@ async def list_chapter_chunks_by_id(
     线上课程分块的 metadata.chapter_id = UUID
     """
     from app.models import Chapter, Course
+    from pathlib import Path
     
     chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
     if not chapter:
@@ -890,12 +920,26 @@ async def list_chapter_chunks_by_id(
     if not course:
         raise HTTPException(status_code=404, detail="课程不存在")
     
-    course_code = course.code
+    # 查找课程目录名（用于匹配 collection）
+    courses_base_dir = Path(__file__).parent.parent.parent / "courses"
+    course_dir = None
+    for d in courses_base_dir.iterdir():
+        if d.is_dir():
+            course_json = d / "course.json"
+            if course_json.exists():
+                import json
+                data = json.loads(course_json.read_text(encoding="utf-8"))
+                if data.get("code") == course.code:
+                    course_dir = d
+                    break
+    
+    if not course_dir:
+        raise HTTPException(status_code=404, detail="课程目录不存在")
     
     try:
         rag_service = RAGService.get_instance()
         store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_{course_code}"),
+            collection_name=normalize_collection_name(f"course_online_{course.code}"),
             persist_directory=rag_service.persist_directory
         )
         all_chunks = store.get_all_chunks()
@@ -905,7 +949,6 @@ async def list_chapter_chunks_by_id(
             metadata = chunk.get("metadata", {})
             
             if metadata.get("chapter_id") != chapter_id:
-                continue
                 continue
             
             if content_type and metadata.get("content_type") != content_type:
@@ -998,13 +1041,12 @@ async def test_retrieval_by_ref(
     
     start_time = time.time()
     
-    # 从 temp_ref 提取 course_id（召回测试在课程级别搜索）
-    course_id = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
+    course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
     
     rag_service = RAGService.get_instance()
     
     store = ChromaVectorStore(
-        collection_name=normalize_collection_name(f"course_{course_id}"),
+        collection_name=normalize_collection_name(f"course_local_{course_code}"),
         persist_directory=rag_service.persist_directory
     )
     
@@ -1013,7 +1055,6 @@ async def test_retrieval_by_ref(
     top_k = request.top_k or config.default_top_k
     score_threshold = request.score_threshold if request.score_threshold is not None else config.score_threshold
     
-    # 课程级别搜索，不按章节过滤（让用户看到最相关的结果）
     results = store.search(
         query_embedding=query_embedding,
         top_k=top_k

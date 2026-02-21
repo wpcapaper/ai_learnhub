@@ -233,17 +233,17 @@ class RAGService:
             self._language_detector = LanguageDetector()
         return self._language_detector
     
-    def _get_vector_store(self, course_id: str) -> ChromaVectorStore:
+    def _get_vector_store(self, course_id: str, source: str = "local") -> ChromaVectorStore:
         """获取或创建课程的向量存储"""
-        collection_name = normalize_collection_name(f"course_{course_id}")
+        collection_name = normalize_collection_name(f"course_{source}_{course_id}")
         return ChromaVectorStore(
             collection_name=collection_name,
             persist_directory=self.persist_directory
         )
     
-    def get_retriever(self, course_id: str) -> RAGRetriever:
-        """获取或创建检索器"""
-        vector_store = self._get_vector_store(course_id)
+    def get_retriever(self, course_id: str, source: str = "online") -> RAGRetriever:
+        """获取或创建检索器（默认使用线上数据源）"""
+        vector_store = self._get_vector_store(course_id, source)
         return RAGRetriever(
             embedding_model=self.embedding_model,
             vector_store=vector_store
