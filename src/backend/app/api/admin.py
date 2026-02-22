@@ -545,7 +545,9 @@ async def list_raw_courses():
     扫描 raw_courses 目录，返回所有待转换的课程
     """
     raw_courses = []
-    courses_dir = get_courses_dir()
+    raw_dir = get_raw_courses_dir()
+    raw_dir = get_raw_courses_dir()
+
     
     if not raw_dir.exists():
         return raw_courses
