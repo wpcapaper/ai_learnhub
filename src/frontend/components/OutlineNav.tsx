@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface OutlineItem {
   id: string;
@@ -14,43 +14,37 @@ interface OutlineNavProps {
   visible?: boolean;
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 50);
-}
-
-function extractHeadings(content: string): OutlineItem[] {
-  const headings: OutlineItem[] = [];
-  const contentWithoutCode = content
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`[^`]+`/g, '');
-  const headingRegex = /^(#{1,3})\s+(.+?)(?:\s+#+)?$/gm;
-  let match;
-  while ((match = headingRegex.exec(contentWithoutCode)) !== null) {
-    const level = match[1].length;
-    const text = match[2].trim();
-    const slug = slugify(text);
-    headings.push({
-      id: `heading-${headings.length}-${slug || 'untitled'}`,
-      level,
-      text,
-    });
-  }
-  return headings;
-}
-
 export default function OutlineNav({ content, scrollContainer, visible = true }: OutlineNavProps) {
-  const headings = useMemo(() => extractHeadings(content), [content]);
+  const [headings, setHeadings] = useState<OutlineItem[]>([]);
   const [activeId, setActiveId] = useState<string>('');
   
-  // 用 ref 存储最新的 scrollContainer
   const containerRef = useRef<HTMLDivElement | null>(null);
   containerRef.current = scrollContainer;
+
+  // 从 DOM 中读取 headings
+  useEffect(() => {
+    const container = scrollContainer;
+    if (!container) return;
+    
+    const updateHeadings = () => {
+      const headingEls = container.querySelectorAll('h1[id], h2[id], h3[id]');
+      const newHeadings: OutlineItem[] = Array.from(headingEls).map(el => ({
+        id: el.id,
+        level: parseInt(el.tagName.charAt(1)),
+        text: el.textContent?.trim() || '',
+      }));
+      setHeadings(newHeadings);
+    };
+    
+    // 初始读取
+    updateHeadings();
+    
+    // 使用 MutationObserver 监听 DOM 变化
+    const observer = new MutationObserver(updateHeadings);
+    observer.observe(container, { childList: true, subtree: true });
+    
+    return () => observer.disconnect();
+  }, [scrollContainer]);
 
   // 滚动事件处理
   useEffect(() => {
@@ -63,58 +57,52 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
       
       const headingEls = el.querySelectorAll('h1[id], h2[id], h3[id]');
       let currentId = '';
+      let minDistance = Infinity;
       
       headingEls.forEach((heading) => {
         const rect = heading.getBoundingClientRect();
         const containerRect = el.getBoundingClientRect();
         const relativeTop = rect.top - containerRect.top;
         
-        if (relativeTop <= 80) {
+        if (relativeTop <= 100 && Math.abs(relativeTop) < minDistance) {
+          minDistance = Math.abs(relativeTop);
           currentId = heading.id;
         }
       });
       
-      setActiveId(prev => currentId && currentId !== prev ? currentId : prev);
+      if (currentId && currentId !== activeId) {
+        setActiveId(currentId);
+      }
     };
 
     container.addEventListener('scroll', onScroll, { passive: true });
-    onScroll(); // 初始化
+    onScroll();
     
     return () => {
       container.removeEventListener('scroll', onScroll);
     };
-  }, [scrollContainer]);
+  }, [scrollContainer, activeId]);
 
-  // 点击跳转 - 通过文本内容查找 heading 元素
-  const handleItemClick = (headingText: string, headingLevel: number) => {
+  // 点击跳转
+  const handleItemClick = (headingId: string) => {
     const container = containerRef.current;
-    if (!container) {
-      return;
-    }
+    if (!container) return;
     
-    // 查找所有对应级别的 heading 元素
-    const tagNames = ['H1', 'H2', 'H3'] as const;
-    const targetTag = tagNames[headingLevel - 1];
-    const headingEls = container.querySelectorAll(targetTag);
+    // 更新 URL hash
+    window.history.pushState(null, '', `#${headingId}`);
+    setActiveId(headingId);
     
-    // 通过文本内容匹配
-    for (const el of headingEls) {
-      if (el.textContent?.trim() === headingText) {
-        const containerRect = container.getBoundingClientRect();
-        const headingRect = el.getBoundingClientRect();
-        const targetScrollTop = container.scrollTop + (headingRect.top - containerRect.top) - 20;
-        
-        container.scrollTo({
-          top: targetScrollTop,
-          behavior: 'smooth',
-        });
-        
-        // 更新 activeId
-        if (el.id) {
-          setActiveId(el.id);
-        }
-        break;
-      }
+    // 查找并滚动到目标
+    const targetEl = container.querySelector(`#${CSS.escape(headingId)}`);
+    if (targetEl) {
+      const containerRect = container.getBoundingClientRect();
+      const headingRect = targetEl.getBoundingClientRect();
+      const targetScrollTop = container.scrollTop + (headingRect.top - containerRect.top) - 20;
+      
+      container.scrollTo({
+        top: targetScrollTop,
+        behavior: 'smooth',
+      });
     }
   };
 
@@ -132,22 +120,23 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
       </div>
       
       <div className="flex-1 overflow-y-auto py-2">
-        {headings.map((heading, index) => {
+        {headings.map((heading) => {
           const indentLevel = heading.level - 1;
           const paddingLeft = 12 + indentLevel * 12;
           const isActive = activeId === heading.id;
           
           return (
             <button
-              key={`${heading.id}-${index}`}
-              onClick={() => handleItemClick(heading.text, heading.level)}
-              className="w-full text-left py-1.5 text-sm truncate"
+              key={heading.id}
+              onClick={() => handleItemClick(heading.id)}
+              className="w-full text-left py-1.5 text-sm truncate transition-all duration-150"
               style={{
                 paddingLeft: `${paddingLeft}px`,
                 paddingRight: '12px',
                 color: isActive ? 'var(--primary)' : 'var(--foreground-secondary)',
                 background: isActive ? 'var(--primary-bg)' : 'transparent',
-                borderLeft: isActive ? '2px solid var(--primary)' : '2px solid transparent',
+                borderLeft: isActive ? '3px solid var(--primary)' : '3px solid transparent',
+                fontWeight: isActive ? 600 : 400,
                 cursor: 'pointer',
               }}
               title={heading.text}

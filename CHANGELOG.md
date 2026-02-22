@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [outline_nav_enhance_0222] - 2026-02-22
+
+### Fixed
+- 目录栏点击最后章节跳转错误的问题
+- 目录栏当前章节高亮不明显的问题
+
+### Changed
+- OutlineNav 从 DOM 读取 headings，避免与 MarkdownReader ID 不一致
+- 目录栏当前章节增加加粗和加粗边框效果
+- MarkdownReader 底部添加 60vh 占位，确保最后章节可滚动到视口顶部
+- 目录栏点击支持 URL hash 更新
+
+### Files
+- `src/frontend/components/OutlineNav.tsx`
+- `src/frontend/components/MarkdownReader.tsx`
+
+
 ## [mermaid_chinese_fix_0222] - 2026-02-22
 
 ### Fixed
