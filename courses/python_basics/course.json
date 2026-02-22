@@ -6,16 +6,19 @@
   "cover_image": "https://via.placeholder.com/400x200/4e55b2/666666/FFFFFF/?text=Python+Basics",
   "chapters": [
     {
+      "code": "introduction",
       "title": "Python 简介",
       "file": "01_introduction.md",
       "sort_order": 1
     },
     {
+      "code": "variables",
       "title": "变量与数据类型",
       "file": "02_variables.md",
       "sort_order": 2
     },
     {
+      "code": "functions",
       "title": "函数定义",
       "file": "03_functions.md",
       "sort_order": 3

@@ -109,6 +109,7 @@ class Chapter:
     title: str                                  # 章节标题
     content: str                                # 章节内容（Markdown格式）
     file_name: str                              # 输出文件名
+    code: str = ""                              # 章节唯一标识（课程内），如 "introduction"
     sort_order: int = 0                         # 排序序号
     source_file: Optional[str] = None           # 来源文件
     source_section: Optional[str] = None        # 来源章节（如ipynb中的某个section）
@@ -217,6 +218,34 @@ class ConvertedCourse:
     quality_report: Optional[QualityReport] = None  # 质量报告
     metadata: Dict[str, Any] = field(default_factory=dict)
     
+    def _generate_chapter_code(self, chapter: Chapter) -> str:
+        """为章节生成唯一标识
+        
+        优先级：
+        1. 已有的 chapter.code
+        2. 从 file_name 提取（去掉序号前缀和扩展名）
+        """
+        if chapter.code:
+            return chapter.code
+        
+        import re
+        # 从 file_name 提取，如 "01_introduction.md" -> "introduction"
+        name = chapter.file_name
+        
+        # 去掉扩展名
+        if '.' in name:
+            name = name.rsplit('.', 1)[0]
+        
+        # 去掉序号前缀（如 01_, 1-, 1.）
+        name = re.sub(r'^\d+[._-]', '', name)
+        name = re.sub(r'^\d+$', '', name)  # 纯数字的情况
+        
+        # 转为小写，替换空格和特殊字符
+        code = name.lower().replace(' ', '_').replace('-', '_')
+        code = re.sub(r'[^a-z0-9_\u4e00-\u9fff]', '', code)
+        
+        return code or f"chapter_{chapter.sort_order}"
+    
     def to_course_json(self) -> Dict[str, Any]:
         """转换为 course.json 格式"""
         return {
@@ -226,6 +255,7 @@ class ConvertedCourse:
             "cover_image": self.cover_image,
             "chapters": [
                 {
+                    "code": self._generate_chapter_code(ch),
                     "title": ch.title,
                     "file": ch.file_name,
                     "sort_order": ch.sort_order

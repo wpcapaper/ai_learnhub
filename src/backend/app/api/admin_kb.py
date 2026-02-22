@@ -584,19 +584,23 @@ async def sync_course_to_online(
         
         course_json_path = course_dir / "course.json"
         
-        local_chapters = {}
+        local_chapters = {}  # title -> file
+        chapter_codes = {}   # file -> chapter_code
         if course_json_path.exists():
             import json
             course_data = json.loads(course_json_path.read_text(encoding="utf-8"))
             for ch in course_data.get("chapters", []):
                 file = ch.get("file", "")
                 title = ch.get("title", "")
+                code = ch.get("code", file.replace(".md", ""))  # 默认使用文件名（去掉.md）
                 if file and title:
                     local_chapters[title] = file
+                    chapter_codes[file] = code
         
         # 获取数据库章节
         db_chapters = db.query(Chapter).filter(Chapter.course_id == course.id).all()
         db_chapter_map = {ch.title: ch for ch in db_chapters}
+        db_chapter_by_code = {ch.code: ch for ch in db_chapters if ch.code}  # code -> chapter
         
         # 按 chapter_id（目录名格式）分组本地分块
         chapters_chunks = {}
@@ -642,14 +646,23 @@ async def sync_course_to_online(
                 new_chunk_id = f"sync_{chapter_id_hash}_{i:04d}"
                 old_metadata = chunk.get("metadata", {})
                 
+                # 获取章节 code
+                chapter_code = chapter_codes.get(file_path, file_path.replace(".md", ""))
+                
                 new_metadata = {
                     **old_metadata,
-                    "chapter_id": str(db_chapter.id),
-                    "course_id": str(course.id),
-                    "synced_from": old_metadata.get("chapter_id", ""),
+                    "course_code": course_code,          # 课程标识
+                    "chapter_code": chapter_code,        # 章节标识
+                    "db_course_id": str(course.id),      # 数据库课程 UUID
+                    "db_chapter_id": str(db_chapter.id), # 数据库章节 UUID
+                    "synced_from": old_metadata.get("chapter_id", ""),  # 原始 temp_ref
                     "synced_at": now_iso,
                     "strategy_version": CURRENT_STRATEGY_VERSION,
                 }
+                
+                # 删除旧的 chapter_id 和 course_id，避免混淆
+                new_metadata.pop("chapter_id", None)
+                new_metadata.pop("course_id", None)
                 
                 new_chunks_data.append({
                     "id": new_chunk_id,
