@@ -282,10 +282,9 @@ function LearningPageContent() {
                 borderRadius: 'var(--radius-lg)',
               }}
             >
-              {currentChapter?.content_markdown && scrollContainer && (
+              {scrollContainer && (
                 <OutlineNav 
-                  key={currentChapter.id}
-                  content={currentChapter.content_markdown}
+                  key={currentChapter?.id || 'no-chapter'}
                   scrollContainer={scrollContainer}
                 />
               )}

@@ -9,20 +9,23 @@ interface OutlineItem {
 }
 
 interface OutlineNavProps {
-  content: string;
   scrollContainer: HTMLDivElement | null;
   visible?: boolean;
 }
 
-export default function OutlineNav({ content, scrollContainer, visible = true }: OutlineNavProps) {
+export default function OutlineNav({ scrollContainer, visible = true }: OutlineNavProps) {
   const [headings, setHeadings] = useState<OutlineItem[]>([]);
   const [activeId, setActiveId] = useState<string>('');
   
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const headingElsRef = useRef<Element[]>([]);
   const navListRef = useRef<HTMLDivElement | null>(null);
   const activeButtonRef = useRef<HTMLButtonElement | null>(null);
-  containerRef.current = scrollContainer;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // 同步 scrollContainer 到 ref，供 useCallback 使用
+  useEffect(() => {
+    scrollContainerRef.current = scrollContainer;
+  }, [scrollContainer]);
 
   // 从 DOM 中读取 headings
   useEffect(() => {
@@ -83,7 +86,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
       
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        const el = containerRef.current;
+        const el = scrollContainerRef.current;
         if (!el) return;
         
         const containerRect = el.getBoundingClientRect();
@@ -115,7 +118,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
 
   // 点击跳转
   const handleItemClick = useCallback((headingId: string) => {
-    const container = containerRef.current;
+    const container = scrollContainerRef.current;
     if (!container) return;
     
     window.history.pushState(null, '', `#${headingId}`);
