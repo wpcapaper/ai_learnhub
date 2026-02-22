@@ -107,11 +107,22 @@ const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || 
                        document.documentElement.classList.contains('dark');
         
+        /* 配置 mermaid 渲染参数，增加节点内边距避免文字被截断 */
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          flowchart: {
+            nodeSpacing: 20,      /* 节点间距 */
+            rankSpacing: 40,      /* 层级间距 */
+            padding: 15,          /* 节点内边距 */
+          },
+          sequence: {
+            actorMargin: 50,
+            boxMargin: 10,
+            noteMargin: 10,
+          },
         });
         
         const { svg } = await mermaid.render(`mermaid-${id}`, code);
