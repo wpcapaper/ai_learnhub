@@ -85,26 +85,36 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
     };
   }, [scrollContainer]);
 
-  // 点击跳转
-  const handleItemClick = (headingId: string) => {
+  // 点击跳转 - 通过文本内容查找 heading 元素
+  const handleItemClick = (headingText: string, headingLevel: number) => {
     const container = containerRef.current;
     if (!container) {
       return;
     }
     
-    const headingEl = container.querySelector(`h1[id="${headingId}"], h2[id="${headingId}"], h3[id="${headingId}"]`);
+    // 查找所有对应级别的 heading 元素
+    const tagNames = ['H1', 'H2', 'H3'] as const;
+    const targetTag = tagNames[headingLevel - 1];
+    const headingEls = container.querySelectorAll(targetTag);
     
-    if (headingEl) {
-      const containerRect = container.getBoundingClientRect();
-      const headingRect = headingEl.getBoundingClientRect();
-      const targetScrollTop = container.scrollTop + (headingRect.top - containerRect.top) - 20;
-      
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior: 'smooth',
-      });
-      
-      setActiveId(headingId);
+    // 通过文本内容匹配
+    for (const el of headingEls) {
+      if (el.textContent?.trim() === headingText) {
+        const containerRect = container.getBoundingClientRect();
+        const headingRect = el.getBoundingClientRect();
+        const targetScrollTop = container.scrollTop + (headingRect.top - containerRect.top) - 20;
+        
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
+        
+        // 更新 activeId
+        if (el.id) {
+          setActiveId(el.id);
+        }
+        break;
+      }
     }
   };
 
@@ -130,7 +140,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
           return (
             <button
               key={`${heading.id}-${index}`}
-              onClick={() => handleItemClick(heading.id)}
+              onClick={() => handleItemClick(heading.text, heading.level)}
               className="w-full text-left py-1.5 text-sm truncate"
               style={{
                 paddingLeft: `${paddingLeft}px`,

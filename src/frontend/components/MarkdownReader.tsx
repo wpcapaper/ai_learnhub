@@ -107,21 +107,13 @@ const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || 
                        document.documentElement.classList.contains('dark');
         
-        /* 配置 mermaid 渲染参数，增加节点内边距避免文字被截断 */
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
-          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
-          flowchart: {
-            nodeSpacing: 20,      /* 节点间距 */
-            rankSpacing: 40,      /* 层级间距 */
-            padding: 15,          /* 节点内边距 */
-          },
-          sequence: {
-            actorMargin: 50,
-            boxMargin: 10,
-            noteMargin: 10,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          themeVariables: {
+            fontSize: '14px',  // 减小字体增加容错空间
           },
         });
         
@@ -172,12 +164,15 @@ const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id
   return (
     <div 
       style={{ 
-        padding: '16px', 
+        /* 移除 padding，让 SVG 有足够空间显示 */
+        padding: '0',
         background: 'var(--background-secondary)', 
         borderRadius: 'var(--radius-md)',
-        overflow: 'auto',
+        overflow: 'visible',  /* 允许内容溢出，避免裁剪 */
         margin: '16px 0',
+        /* 使用 CSS 让内部 SVG 有 padding */
       }}
+      className="mermaid-container"
       dangerouslySetInnerHTML={{ __html: svg }} 
     />
   );
