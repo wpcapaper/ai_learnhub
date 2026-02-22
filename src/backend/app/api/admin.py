@@ -836,6 +836,35 @@ async def import_single_course_to_database(course_id: str):
         db.close()
 
 
+
+class CourseActivateRequest(BaseModel):
+    """课程启用请求"""
+    is_active: bool
+
+
+@router.put("/database/courses/{course_id}/activate")
+async def activate_course(course_id: str, request: CourseActivateRequest):
+    """
+    启用/停用课程
+    
+    - is_active=true: 课程在 C 端可见
+    - is_active=false: 课程在 C 端不可见（草稿状态）
+    """
+    db = SessionLocal()
+    try:
+        course = db.query(Course).filter(Course.id == course_id).first()
+        if not course:
+            raise HTTPException(status_code=404, detail="课程不存在")
+        
+        course.is_active = request.is_active
+        db.commit()
+        
+        status = "已启用" if request.is_active else "已停用"
+        return {"message": f"课程{status}", "course_id": course_id, "is_active": request.is_active}
+    finally:
+        db.close()
+
+
 @router.delete("/database/courses/{course_id}")
 async def delete_course_from_database(course_id: str):
     """
