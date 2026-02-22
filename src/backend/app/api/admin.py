@@ -121,7 +121,7 @@ def get_courses_dir() -> Path:
     if docker_path.exists():
         return docker_path
     # 本地开发：相对于项目根目录
-    return Path(os.path.dirname(__file__)).parent.parent.parent.parent.parent / "courses"
+    return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "courses"
 
 
 def get_raw_courses_dir() -> Path:
@@ -131,7 +131,7 @@ def get_raw_courses_dir() -> Path:
     if docker_path.exists():
         return docker_path
     # 本地开发：相对于项目根目录
-    return Path(os.path.dirname(__file__)).parent.parent.parent.parent.parent / "raw_courses"
+    return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "raw_courses"
 
 
 def load_course_json(course_dir: Path) -> Optional[Dict[str, Any]]:
@@ -254,7 +254,7 @@ async def convert_courses(background_tasks: BackgroundTasks):
 @router.post("/courses/convert/{course_id}", response_model=ConvertResponse)
 async def convert_single_course(course_id: str):
     course_id = validate_course_id(course_id)
-    raw_dir = get_raw_courses_dir()
+    courses_dir = get_courses_dir()
     courses_dir = get_courses_dir()
     
     source_dir = raw_dir / course_id
@@ -536,7 +536,7 @@ async def list_raw_courses():
     扫描 raw_courses 目录，返回所有待转换的课程
     """
     raw_courses = []
-    raw_dir = get_raw_courses_dir()
+    courses_dir = get_courses_dir()
     
     if not raw_dir.exists():
         return raw_courses
@@ -887,3 +887,270 @@ async def generate_quiz_for_course(request: QuizGenerateRequest):
         total_questions=0,
         chapters_processed=len(chapters)
     )
+
+
+# ==================== 词云管理 API ====================
+# 词云功能：生成课程/章节的关键词词云数据
+# 使用 jieba TF-IDF 算法提取关键词，生成 JSON 格式的词频数据
+# 前端使用 react-wordcloud 渲染
+
+from app.services.wordcloud_service import WordcloudService
+
+
+class WordcloudResponse(BaseModel):
+    """词云响应数据"""
+    version: str = "1.0"
+    generated_at: str = ""
+    words: List[Dict[str, float]] = []
+    source_stats: Dict = {}
+
+
+class WordcloudStatusResponse(BaseModel):
+    """词云状态响应"""
+    has_wordcloud: bool
+    generated_at: Optional[str] = None
+    words_count: int = 0
+
+
+class ChapterWordcloudStatus(BaseModel):
+    """章节词云状态"""
+    name: str
+    path: str
+    has_wordcloud: bool
+
+
+class BatchGenerateResult(BaseModel):
+    """批量生成结果"""
+    success: bool
+    message: str
+    course_wordcloud: Optional[Dict] = None
+    chapters_processed: int = 0
+    chapters_total: int = 0
+    errors: List[str] = []
+
+
+def get_wordcloud_service() -> WordcloudService:
+    """获取词云服务实例"""
+    return WordcloudService(courses_dir=str(get_courses_dir()))
+
+
+@router.get("/courses/{course_id}/wordcloud")
+async def get_course_wordcloud(course_id: str):
+    """
+    获取课程级词云数据
+    
+    从课程目录读取 wordcloud.json 文件，返回词云数据
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    wordcloud_data = wc_service.get_course_wordcloud(course_dir)
+    
+    if not wordcloud_data:
+        raise HTTPException(status_code=404, detail="词云未生成")
+    
+    return wordcloud_data
+
+
+@router.post("/courses/{course_id}/wordcloud")
+async def generate_course_wordcloud(course_id: str):
+    """
+    生成课程级词云
+    
+    使用 jieba TF-IDF 算法提取课程所有章节的关键词
+    聚合所有 markdown 文件内容生成词云
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    
+    try:
+        wordcloud_data = wc_service.generate_course_wordcloud(course_dir)
+        return {
+            "success": True,
+            "message": "词云生成成功",
+            "data": wordcloud_data
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"词云生成失败: {str(e)}")
+
+
+@router.delete("/courses/{course_id}/wordcloud")
+async def delete_course_wordcloud(course_id: str):
+    """
+    删除课程级词云
+    
+    删除课程目录下的 wordcloud.json 文件
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    deleted = wc_service.delete_course_wordcloud(course_dir)
+    
+    if deleted:
+        return {"success": True, "message": "词云已删除"}
+    else:
+        return {"success": False, "message": "词云不存在"}
+
+
+@router.get("/courses/{course_id}/wordcloud/status")
+async def get_course_wordcloud_status(course_id: str):
+    """
+    获取课程词云状态
+    
+    返回词云是否存在、生成时间、关键词数量等信息
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    wordcloud_data = wc_service.get_course_wordcloud(course_dir)
+    
+    if wordcloud_data:
+        return WordcloudStatusResponse(
+            has_wordcloud=True,
+            generated_at=wordcloud_data.get("generated_at"),
+            words_count=len(wordcloud_data.get("words", []))
+        )
+    else:
+        return WordcloudStatusResponse(
+            has_wordcloud=False,
+            generated_at=None,
+            words_count=0
+        )
+
+
+@router.get("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
+async def get_chapter_wordcloud(course_id: str, chapter_name: str):
+    """
+    获取章节级词云数据
+    
+    从章节目录读取 wordcloud.json 文件
+    """
+    course_id = validate_course_id(course_id)
+    chapter_name = validate_course_id(chapter_name)  # 复用验证逻辑
+    
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    wordcloud_data = wc_service.get_chapter_wordcloud(course_dir, chapter_name)
+    
+    if not wordcloud_data:
+        raise HTTPException(status_code=404, detail="章节词云未生成")
+    
+    return wordcloud_data
+
+
+@router.post("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
+async def generate_chapter_wordcloud(course_id: str, chapter_name: str):
+    """
+    生成章节级词云
+    
+    根据章节 markdown 文件生成词云
+    """
+    course_id = validate_course_id(course_id)
+    chapter_name = validate_course_id(chapter_name)
+    
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    # 查找章节文件
+    chapter_file = None
+    for md_file in course_dir.glob("**/*.md"):
+        if md_file.stem == chapter_name:
+            chapter_file = md_file
+            break
+    
+    if not chapter_file:
+        raise HTTPException(status_code=404, detail=f"章节文件不存在: {chapter_name}")
+    
+    wc_service = get_wordcloud_service()
+    
+    try:
+        wordcloud_data = wc_service.generate_chapter_wordcloud(chapter_file)
+        return {
+            "success": True,
+            "message": "章节词云生成成功",
+            "data": wordcloud_data
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"词云生成失败: {str(e)}")
+
+
+@router.get("/courses/{course_id}/chapters/wordcloud-status")
+async def list_chapter_wordcloud_status(course_id: str):
+    """
+    列出课程下所有章节的词云状态
+    
+    返回每个章节是否已生成词云
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    chapters = wc_service.list_chapter_wordclouds(course_dir)
+    
+    return [ChapterWordcloudStatus(**ch) for ch in chapters]
+
+
+@router.post("/courses/{course_id}/wordcloud/batch")
+async def batch_generate_wordclouds(course_id: str):
+    """
+    批量生成课程和所有章节的词云
+    
+    一次性生成课程级词云和所有章节级词云
+    """
+    course_id = validate_course_id(course_id)
+    courses_dir = get_courses_dir()
+    course_dir = courses_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = get_wordcloud_service()
+    
+    try:
+        result = wc_service.batch_generate_wordclouds(course_dir)
+        
+        return BatchGenerateResult(
+            success=len(result["errors"]) == 0,
+            message="批量生成完成" if result["course"] else "部分生成失败",
+            course_wordcloud=result["course"],
+            chapters_processed=len(result["chapters"]),
+            chapters_total=len(result["chapters"]) + len([e for e in result["errors"] if "章节" in e]),
+            errors=result["errors"]
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"批量生成失败: {str(e)}")
