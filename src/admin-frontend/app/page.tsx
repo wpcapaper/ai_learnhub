@@ -9,6 +9,7 @@ import {
   ImportResult,
   QuizGenerateResult 
 } from '@/lib/api';
+import WordcloudManager from '@/components/WordcloudManager';
 
 type TabType = 'converted' | 'raw' | 'database';
 
@@ -29,6 +30,8 @@ export default function CoursesPage() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [quizResult, setQuizResult] = useState<QuizGenerateResult | null>(null);
   const [convertResult, setConvertResult] = useState<ConvertResult | null>(null);
+  // 词云弹窗状态
+  const [wordcloudModal, setWordcloudModal] = useState<{ courseId: string; courseName: string } | null>(null);
 
   useEffect(() => {
     loadAllData();
@@ -164,6 +167,7 @@ export default function CoursesPage() {
   }
 
   return (
+    <>
     <div className="p-8">
       <div className="mb-8">
         <div className="flex items-center gap-2 text-[13px] text-[#71717a] mb-2">
@@ -450,6 +454,7 @@ export default function CoursesPage() {
                   onGenerateQuiz={handleGenerateQuiz}
                   onImport={handleImportSingle}
                   actionLoading={actionLoading}
+                  onManageWordcloud={(id, name) => setWordcloudModal({ courseId: id, courseName: name })}
                 />
               ))}
             </div>
@@ -484,6 +489,15 @@ export default function CoursesPage() {
         </div>
       )}
     </div>
+    {/* 词云管理弹窗 */}
+    {wordcloudModal && (
+      <WordcloudManager
+        courseId={wordcloudModal.courseId}
+        courseName={wordcloudModal.courseName}
+        onClose={() => setWordcloudModal(null)}
+      />
+    )}
+    </>
   );
 }
 
@@ -639,10 +653,11 @@ function RawCourseCard({ course, onConvert, loading }: {
   );
 }
 
-function CourseCard({ course, onGenerateQuiz, onImport, actionLoading }: { 
+function CourseCard({ course, onGenerateQuiz, onImport, onManageWordcloud, actionLoading }: { 
   course: Course; 
   onGenerateQuiz: (courseId: string) => void;
   onImport: (courseId: string) => void;
+  onManageWordcloud: (courseId: string, courseName: string) => void;
   actionLoading: string | null;
 }) {
   const score = course.quality_score;
@@ -703,6 +718,12 @@ function CourseCard({ course, onGenerateQuiz, onImport, actionLoading }: {
           className="btn btn-ghost flex-1 text-sm text-[#60a5fa]"
         >
           {actionLoading === `quiz-${course.id}` ? '生成中...' : '生成题目'}
+        </button>
+        <button 
+          onClick={() => onManageWordcloud(course.id, course.title)}
+          className="btn btn-ghost flex-1 text-sm text-[#a78bfa]"
+        >
+          词云
         </button>
         <a 
           href={`/optimization?course=${course.id}`} 
