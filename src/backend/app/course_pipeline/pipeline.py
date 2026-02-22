@@ -6,7 +6,7 @@
 2. 转换各种格式的课程文件
 3. 编排章节顺序
 4. 执行质量评估
-5. 输出到 courses 目录
+5. 输出到 markdown_courses/{name}_v{N}/ 目录
 
 所有RAG相关数据独立存储，不依赖业务数据库（app.db）
 """
@@ -160,12 +160,14 @@ class CoursePipeline:
     课程转换管道
     
     主入口类，协调整个转换流程
+    
+    输出目录结构：markdown_courses/{course_name}_v{N}/
     """
     
     def __init__(
         self,
         raw_courses_dir: str = "raw_courses",
-        courses_dir: str = "courses",
+        markdown_courses_dir: str = "markdown_courses",
         llm_client: Optional[Any] = None
     ):
         """
@@ -173,13 +175,27 @@ class CoursePipeline:
         
         Args:
             raw_courses_dir: 原始课程目录
-            courses_dir: 输出课程目录
+            markdown_courses_dir: 输出课程目录（转换后的 markdown）
             llm_client: 可选的LLM客户端（用于质量评估）
         """
         self.raw_courses_dir = Path(raw_courses_dir)
-        self.courses_dir = Path(courses_dir)
+        self.markdown_courses_dir = Path(markdown_courses_dir)
         self.converter_registry = ConverterRegistry()
         self.quality_evaluator = QualityEvaluator(llm_client)
+    
+    def _get_next_version(self, course_id: str) -> int:
+        """获取课程的下一个版本号"""
+        pattern = f"{course_id}_v*"
+        existing_versions = []
+        
+        if self.markdown_courses_dir.exists():
+            for d in self.markdown_courses_dir.glob(pattern):
+                if d.is_dir():
+                    match = re.search(r'_v(\d+)$', d.name)
+                    if match:
+                        existing_versions.append(int(match.group(1)))
+        
+        return max(existing_versions) + 1 if existing_versions else 1
     
     def scan_raw_courses(self) -> List[RawCourse]:
         """
@@ -245,12 +261,13 @@ class CoursePipeline:
         
         return copied_count
     
-    def convert_course(self, raw_course: RawCourse) -> ConversionResult:
+    def convert_course(self, raw_course: RawCourse, version: Optional[int] = None) -> ConversionResult:
         """
         转换单个课程
         
         Args:
             raw_course: 原始课程数据
+            version: 指定版本号（可选，不传则自动递增）
         
         Returns:
             转换结果
@@ -258,8 +275,13 @@ class CoursePipeline:
         start_time = time.time()
         
         try:
-            # 1. 创建输出目录
-            output_dir = self.courses_dir / raw_course.course_id
+            # 确定版本号
+            if version is None:
+                version = self._get_next_version(raw_course.course_id)
+            
+            # 1. 创建输出目录：markdown_courses/{course_id}_v{N}/
+            output_dir_name = f"{raw_course.course_id}_v{version}"
+            output_dir = self.markdown_courses_dir / output_dir_name
             output_dir.mkdir(parents=True, exist_ok=True)
             
             # 1.5 复制图片等资源文件
@@ -660,7 +682,7 @@ class RAGChunkOptimizer:
 
 def run_pipeline(
     raw_courses_dir: str = "raw_courses",
-    courses_dir: str = "courses",
+    markdown_courses_dir: str = "markdown_courses",
     llm_client: Optional[Any] = None
 ) -> List[ConversionResult]:
     """
@@ -668,7 +690,7 @@ def run_pipeline(
     
     Args:
         raw_courses_dir: 原始课程目录
-        courses_dir: 输出课程目录
+        markdown_courses_dir: 输出课程目录（转换后的 markdown）
         llm_client: 可选的LLM客户端
     
     Returns:
@@ -676,7 +698,7 @@ def run_pipeline(
     """
     pipeline = CoursePipeline(
         raw_courses_dir=raw_courses_dir,
-        courses_dir=courses_dir,
+        markdown_courses_dir=markdown_courses_dir,
         llm_client=llm_client
     )
     return pipeline.convert_all()

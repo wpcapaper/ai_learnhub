@@ -134,6 +134,15 @@ def get_raw_courses_dir() -> Path:
     return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "raw_courses"
 
 
+def get_markdown_courses_dir() -> Path:
+    """获取 markdown_courses 目录路径"""
+    # 优先使用 Docker 挂载路径
+    docker_path = Path("/app/markdown_courses")
+    if docker_path.exists():
+        return docker_path
+    # 本地开发：相对于项目根目录
+    return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "markdown_courses"
+
 def load_course_json(course_dir: Path) -> Optional[Dict[str, Any]]:
     """加载课程的 course.json"""
     course_json = course_dir / "course.json"
@@ -223,11 +232,11 @@ async def convert_courses(background_tasks: BackgroundTasks):
     将 raw_courses 目录下的原始课程转换为标准格式
     """
     raw_dir = str(get_raw_courses_dir())
-    courses_dir = str(get_courses_dir())
+    markdown_dir = str(get_markdown_courses_dir())
     
     pipeline = CoursePipeline(
         raw_courses_dir=raw_dir,
-        courses_dir=courses_dir
+        markdown_courses_dir=markdown_dir
     )
     
     # 执行转换
