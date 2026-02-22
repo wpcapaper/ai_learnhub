@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [mermaid_chinese_fix_0222] - 2026-02-22
+
+### Fixed
+- Mermaid 流程图节点中文字符截断问题（使用等宽字体 + 减小字号）
+- OutlineNav 目录栏点击无法跳转问题（改用文本匹配）
+
+### Changed
+- Mermaid 使用等宽字体 (ui-monospace) 提高文本宽度测量准确性
+- Mermaid 字号减小到 14px 增加容错空间
+- OutlineNav handleItemClick 改为通过文本内容和标题级别匹配
+
+### Files
+- `src/frontend/components/MarkdownReader.tsx`
+- `src/frontend/components/OutlineNav.tsx`
+- `src/frontend/app/globals.css`
+
+
 ## [mermaid_progress_fix_20260222] - 2026-02-22
 
 ### Fixed
@@ -15,8 +32,6 @@ All notable changes to this project will be documented in this file.
 ### Files
 - `src/frontend/components/MarkdownReader.tsx`
 - `src/frontend/app/learning/page.tsx`
-
-详见：`~/Codes/vibe-coding-logs/change_log/aie55_llm5_learnhub/mermaid_progress_fix_20260222.md`
 
 ## [code_block_theme_fix_20260222] - 2026-02-22
 
@@ -34,5 +49,3 @@ All notable changes to this project will be documented in this file.
 ### Files
 - `src/frontend/app/globals.css`
 - `src/frontend/components/MarkdownReader.tsx`
-
-详见：`~/Codes/vibe-coding-logs/change_log/aie55_llm5_learnhub/code_block_theme_fix_20260222.md`
