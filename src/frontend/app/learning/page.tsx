@@ -172,14 +172,18 @@ function LearningPageContent() {
   }, [router, courseId]);
 
   const handleProgressChange = useCallback(async (position: number, percentage: number) => {
+    /* 将浮点数取整，避免后端 422 错误 */
+    const roundedPosition = Math.round(position);
+    const roundedPercentage = Math.round(percentage);
+    
     // 直接更新 DOM，不触发 state 更新
-    updateProgressBar(percentage);
+    updateProgressBar(roundedPercentage);
     
     if (currentChapter) {
       const progressKey = `chapter_progress_${currentChapter.id}`;
       localStorage.setItem(progressKey, JSON.stringify({
-        position,
-        percentage,
+        position: roundedPosition,
+        percentage: roundedPercentage,
         timestamp: Date.now(),
       }));
     }
@@ -278,10 +282,9 @@ function LearningPageContent() {
                 borderRadius: 'var(--radius-lg)',
               }}
             >
-              {currentChapter?.content_markdown && scrollContainer && (
+              {scrollContainer && (
                 <OutlineNav 
-                  key={currentChapter.id}
-                  content={currentChapter.content_markdown}
+                  key={currentChapter?.id || 'no-chapter'}
                   scrollContainer={scrollContainer}
                 />
               )}

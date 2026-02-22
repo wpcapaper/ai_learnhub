@@ -4,7 +4,70 @@ import { useRef, useEffect, useState, forwardRef, useImperativeHandle, memo } fr
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { SyntaxHighlighterProps } from 'react-syntax-highlighter';
 import LaTeXRenderer from './LaTeXRenderer';
+
+/**
+ * 自定义语法高亮样式
+ * 使用 CSS 变量实现主题适配，避免背景色问题
+ * 注意：SyntaxHighlighter 需要具体颜色值，无法直接使用 CSS 变量
+ * 因此这里使用 inherit 继承父元素颜色，由 CSS 变量控制
+ */
+const customCodeStyle: SyntaxHighlighterProps['style'] = {
+  /* 基础样式 - 继承父元素颜色 */
+  'code[class*="language-"]': {
+    color: 'inherit',
+    textShadow: 'none',
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: '14px',
+  },
+  'pre[class*="language-"]': {
+    color: 'inherit',
+    textShadow: 'none',
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: '14px',
+    background: 'transparent',  /* 背景由 customStyle 控制 */
+    border: 'none',  /* 移除边框 */
+  },
+  /* 注释和文档 */
+  comment: { color: 'var(--code-token-comment)', fontStyle: 'italic' },
+  prolog: { color: 'var(--code-token-comment)' },
+  doctype: { color: 'var(--code-token-comment)' },
+  cdata: { color: 'var(--code-token-comment)' },
+  /* 标点和符号 */
+  punctuation: { color: 'var(--code-token-punctuation)' },
+  /* 命名空间 */
+  namespace: { color: 'var(--code-token-punctuation)', opacity: 0.7 },
+  /* 属性 */
+  property: { color: 'var(--code-token-property)' },
+  tag: { color: 'var(--code-token-keyword)' },
+  boolean: { color: 'var(--code-token-number)' },
+  number: { color: 'var(--code-token-number)' },
+  constant: { color: 'var(--code-token-number)' },
+  symbol: { color: 'var(--code-token-number)' },
+  deleted: { color: 'var(--code-token-deleted)' },
+  /* 字符串 */
+  selector: { color: 'var(--code-token-string)' },
+  'attr-name': { color: 'var(--code-token-string)' },
+  string: { color: 'var(--code-token-string)' },
+  char: { color: 'var(--code-token-string)' },
+  builtin: { color: 'var(--code-token-string)' },
+  inserted: { color: 'var(--code-token-inserted)' },
+  /* 运算符 */
+  operator: { color: 'var(--code-token-operator)', background: 'transparent' },
+  entity: { color: 'var(--code-token-operator)', cursor: 'help' },
+  url: { color: 'var(--code-token-string)' },
+  /* 变量和函数 */
+  variable: { color: 'var(--code-token-variable)' },
+  'attr-value': { color: 'var(--code-token-string)' },
+  atrule: { color: 'var(--code-token-keyword)' },
+  function: { color: 'var(--code-token-function)' },
+  'class-name': { color: 'var(--code-token-class)' },
+  /* 关键字 */
+  keyword: { color: 'var(--code-token-keyword)' },
+  important: { color: 'var(--code-token-keyword)', fontWeight: 'bold' },
+  regex: { color: 'var(--code-token-string)' },
+};
 
 interface MarkdownReaderProps {
   content: string;
@@ -48,7 +111,10 @@ const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id
           startOnLoad: false,
           theme: isDark ? 'dark' : 'default',
           securityLevel: 'loose',
-          fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+          themeVariables: {
+            fontSize: '14px',  // 减小字体增加容错空间
+          },
         });
         
         const { svg } = await mermaid.render(`mermaid-${id}`, code);
@@ -98,12 +164,15 @@ const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id
   return (
     <div 
       style={{ 
-        padding: '16px', 
+        /* 移除 padding，让 SVG 有足够空间显示 */
+        padding: '0',
         background: 'var(--background-secondary)', 
         borderRadius: 'var(--radius-md)',
-        overflow: 'auto',
+        overflow: 'visible',  /* 允许内容溢出，避免裁剪 */
         margin: '16px 0',
+        /* 使用 CSS 让内部 SVG 有 padding */
       }}
+      className="mermaid-container"
       dangerouslySetInnerHTML={{ __html: svg }} 
     />
   );
@@ -242,12 +311,13 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
             
             return (
               <div style={{ margin: '16px 0' }}>
+                {/* 语言标签 - 可选显示 */}
                 {language && (
                   <div style={{
                     padding: '4px 12px',
                     background: 'var(--code-header-bg)',
-                    border: '1px solid var(--code-border)',
-                    borderBottom: 'none',
+                    borderTopLeftRadius: 'var(--radius-md)',
+                    borderTopRightRadius: 'var(--radius-md)',
                     display: 'inline-block',
                   }}>
                     <span style={{
@@ -258,16 +328,21 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
                     }}>{language}</span>
                   </div>
                 )}
+                {/* 语法高亮代码块 - 使用自定义样式适配主题 */}
                 <SyntaxHighlighter
                   language={language || 'text'}
                   PreTag="pre"
-                  style={undefined}
+                  style={customCodeStyle}
                   customStyle={{
                     margin: 0,
                     padding: '16px',
                     background: 'var(--code-bg)',
-                    border: '1px solid var(--code-border)',
-                    borderTop: language ? 'none' : '1px solid var(--code-border)',
+                    /* 移除边框，由 CSS 全局控制 */
+                    border: 'none',
+                    borderTopLeftRadius: language ? 0 : 'var(--radius-md)',
+                    borderTopRightRadius: language ? 0 : 'var(--radius-md)',
+                    borderBottomLeftRadius: 'var(--radius-md)',
+                    borderBottomRightRadius: 'var(--radius-md)',
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: '14px',
                     lineHeight: 1.6,
@@ -360,6 +435,8 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
       >
         {content}
       </ReactMarkdown>
+      {/* 底部占位，确保最后章节也能滚动到顶部 */}
+      <div style={{ height: '60vh' }} />
     </div>
   );
 });

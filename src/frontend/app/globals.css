@@ -121,12 +121,27 @@
   --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   --card-shadow-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
   
-  --code-bg: #1e1e1e;
-  --code-header-bg: #252526;
-  --code-border: #333;
-  --code-text: #d4d4d4;
-  --code-inline-bg: #282828;
-  --code-lang-default: #888;
+  /* 代码块浅色主题配色 - 使用柔和的浅灰色背景 */
+  --code-bg: #f6f8fa;
+  --code-header-bg: #f0f2f4;
+  --code-border: #d8dee4;
+  --code-text: #24292f;
+  --code-inline-bg: #eff1f3;
+  --code-lang-default: #57606a;
+  
+  /* 语法高亮 token 颜色 - 浅色主题专用 */
+  --code-token-comment: #6e7781;
+  --code-token-keyword: #cf222e;
+  --code-token-string: #0a3069;
+  --code-token-number: #0550ae;
+  --code-token-function: #8250df;
+  --code-token-operator: #cf222e;
+  --code-token-punctuation: #24292f;
+  --code-token-variable: #953800;
+  --code-token-class: #953800;
+  --code-token-property: #0550ae;
+  --code-token-deleted: #82071e;
+  --code-token-inserted: #116329;
   
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -169,10 +184,24 @@
   
   --code-bg: #0d0d0e;
   --code-header-bg: #161618;
-  --code-border: #2a2a2c;
+  --code-border: rgba(255, 255, 255, 0.06);  /* 深色主题边框更柔和 */
   --code-text: #c9c9c9;
   --code-inline-bg: #1a1a1c;
   --code-lang-default: #6b6b6b;
+  
+  /* 语法高亮 token 颜色 - 深色主题专用 */
+  --code-token-comment: #8b949e;
+  --code-token-keyword: #ff7b72;
+  --code-token-string: #a5d6ff;
+  --code-token-number: #79c0ff;
+  --code-token-function: #d2a8ff;
+  --code-token-operator: #ff7b72;
+  --code-token-punctuation: #c9d1d9;
+  --code-token-variable: #ffa657;
+  --code-token-class: #ffa657;
+  --code-token-property: #79c0ff;
+  --code-token-deleted: #ffa198;
+  --code-token-inserted: #7ee787;
 }
 
 body {
@@ -189,16 +218,22 @@ pre, code, .code-block, pre code, pre span {
 }
 
 pre {
-  background: var(--code-bg) !important;
-  border: 1px solid var(--code-border);
-  padding: 16px;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  text-shadow: none;
   overflow-x: auto;
-  margin: 16px 0;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--code-text);
-  text-shadow: none;
-  box-shadow: none;
+  /* 不设置背景、边框、圆角、内边距、外边距 - 由组件控制 */
+}
+
+/* 强制移除 SyntaxHighlighter 生成的边框，但不覆盖背景（由组件控制） */
+pre[class*="language-"],
+code[class*="language-"],
+[class*="language-"] pre,
+[class*="language-"] code {
+  border: none !important;
+  outline: none !important;
+  /* 不覆盖 background，让组件的 customStyle 生效 */
 }
 
 p code, li code {
@@ -260,3 +295,22 @@ pre code {
 .markdown-content th { background: var(--background-secondary); font-weight: 600; }
 .markdown-content img { max-width: 100%; border-radius: var(--radius-md); margin: 1rem 0; }
 .markdown-content hr { border: none; border-top: 1px solid var(--card-border); margin: 1.5rem 0; }
+
+/* Mermaid 流程图样式 - 修复中文文字截断问题 */
+.mermaid-container {
+  padding: 16px;
+  overflow-x: auto;
+}
+/* 强制节点标签宽度自适应文字内容 */
+.mermaid-container .label {
+  display: inline-block !important;
+  width: auto !important;
+  min-width: max-content !important;
+}
+/* 修复 foreignObject 内的标签容器 */
+.mermaid-container foreignObject > div,
+.mermaid-container .labelContainer {
+  width: max-content !important;
+  overflow: visible !important;
+}
+
