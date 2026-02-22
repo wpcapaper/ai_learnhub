@@ -143,6 +143,12 @@ export interface ReviewStats {
   mastered_count: number;
 }
 
+export interface WordcloudStatus {
+  has_wordcloud: boolean;
+  generated_at?: string | null;
+  words_count: number;
+}
+
 export interface AnswerSubmission {
   question_id: string;
   answer: string;
@@ -374,6 +380,11 @@ class ApiClient {
 
   async getLearningProgress(courseId: string, userId: string): Promise<LearningProgressSummary> {
     return this.fetchJson<LearningProgressSummary>(`/api/learning/${courseId}/progress?user_id=${userId}`);
+  }
+
+  // 词云 API
+  async getCourseWordcloudStatus(courseId: string): Promise<WordcloudStatus> {
+    return this.fetchJson<WordcloudStatus>(`/api/admin/courses/${courseId}/wordcloud/status`);
   }
 
   // AI 对话 API（流式响应）
