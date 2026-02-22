@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, forwardRef, useImperativeHandle, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -14,53 +14,53 @@ interface MarkdownReaderProps {
   chapterPath?: string;
 }
 
-function MermaidDiagram({ code }: { code: string }) {
+export interface MarkdownReaderRef {
+  getScrollContainer: () => HTMLDivElement | null;
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\w\u4e00-\u9fa5\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 50);
+}
+
+const MermaidBlock = memo(function MermaidBlock({ code, id }: { code: string; id: string }) {
   const [svg, setSvg] = useState<string>('');
-  const [error, setError] = useState<string>('');
-  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const renderedRef = useRef(false);
 
   useEffect(() => {
-    let mounted = true;
+    if (renderedRef.current) return;
+    renderedRef.current = true;
     
-    const renderDiagram = async () => {
+    const render = async () => {
       try {
         const mermaid = (await import('mermaid')).default;
         
-        // 检测当前主题：优先 data-theme 属性，其次 dark class
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark' || 
                        document.documentElement.classList.contains('dark');
         
         mermaid.initialize({
           startOnLoad: false,
           theme: isDark ? 'dark' : 'default',
+          securityLevel: 'loose',
           fontFamily: 'ui-sans-serif, system-ui, sans-serif',
         });
         
-        const { svg } = await mermaid.render('mermaid-' + Date.now(), code);
-        if (mounted) {
-          setSvg(svg);
-          setIsLoading(false);
-        }
+        const { svg } = await mermaid.render(`mermaid-${id}`, code);
+        setSvg(svg);
       } catch (err) {
-        if (mounted) {
-          setError('图表渲染失败');
-          setIsLoading(false);
-        }
+        console.error('Mermaid 渲染失败:', err);
+        setError(true);
       }
     };
     
-    renderDiagram();
-    
-    return () => { mounted = false; };
-  }, [code]);
-
-  if (isLoading) {
-    return (
-      <div style={{ padding: '20px', textAlign: 'center', color: 'var(--foreground-secondary)' }}>
-        加载图表中...
-      </div>
-    );
-  }
+    render();
+  }, [code, id]);
 
   if (error) {
     return (
@@ -69,10 +69,29 @@ function MermaidDiagram({ code }: { code: string }) {
         color: 'var(--code-text)',
         padding: '16px',
         borderRadius: 'var(--radius-md)',
-        overflow: 'auto'
+        overflow: 'auto',
+        margin: '16px 0',
       }}>
         {code}
       </pre>
+    );
+  }
+
+  if (!svg) {
+    return (
+      <div 
+        style={{ 
+          minHeight: '80px',
+          padding: '20px', 
+          textAlign: 'center', 
+          color: 'var(--foreground-secondary)',
+          background: 'var(--background-secondary)',
+          borderRadius: 'var(--radius-md)',
+          margin: '16px 0',
+        }}
+      >
+        图表渲染中...
+      </div>
     );
   }
 
@@ -82,15 +101,29 @@ function MermaidDiagram({ code }: { code: string }) {
         padding: '16px', 
         background: 'var(--background-secondary)', 
         borderRadius: 'var(--radius-md)',
-        overflow: 'auto'
+        overflow: 'auto',
+        margin: '16px 0',
       }}
       dangerouslySetInnerHTML={{ __html: svg }} 
     />
   );
-}
+});
 
-export default function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }: MarkdownReaderProps) {
+const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
+  function MarkdownReader({ content, onProgressChange, variant = 'document', courseDirName, chapterPath }, ref) {
   const contentRef = useRef<HTMLDivElement>(null);
+  const headingCounterRef = useRef(0);
+  const mermaidCounterRef = useRef(0);
+  
+  useImperativeHandle(ref, () => ({
+    getScrollContainer: () => contentRef.current,
+  }), []);
+  
+  // 内容变化时重置计数器
+  useEffect(() => {
+    headingCounterRef.current = 0;
+    mermaidCounterRef.current = 0;
+  }, [content]);
   
   const rewriteImageUrl = (src: string): string => {
     if (src.startsWith('http://') || src.startsWith('https://') || src.startsWith('/')) {
@@ -130,10 +163,21 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
   }
 
   const containerClasses = variant === 'document' 
-    ? "flex-1 overflow-y-auto px-8 py-6 markdown-content"
+    ? "flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 markdown-content"
     : "markdown-content";
 
-  const baseFontSize = variant === 'document' ? 17 : 14;
+  const baseFontSize = variant === 'document' ? 16 : 14;
+
+  const generateHeadingId = (children: any): string => {
+    const text = typeof children === 'string' 
+      ? children 
+      : Array.isArray(children) 
+        ? children.map(c => typeof c === 'string' ? c : '').join('')
+        : '';
+    const slug = slugify(text);
+    const index = headingCounterRef.current++;
+    return `heading-${index}-${slug || 'untitled'}`;
+  };
 
   return (
     <div
@@ -146,14 +190,13 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
         remarkPlugins={[remarkGfm]}
         components={{
           pre({ children }: any) {
-            return <>{children}</>;
+            return <pre style={{ margin: 0 }}>{children}</pre>;
           },
           code({ className, children, ...props }: any) {
             const match = /language-(\w+)/.exec(className || '');
             const language = match ? match[1] : '';
-            const inline = !(props as any).node?.position?.start?.line || 
-                           (props as any).inline ||
-                           !className?.includes('language-');
+            const inline = !className?.includes('language-');
+            const codeContent = String(children).replace(/\n$/, '');
             
             if (inline) {
               return (
@@ -165,8 +208,6 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
                     borderRadius: '4px',
                     fontFamily: "'JetBrains Mono', monospace",
                     fontSize: '0.85em',
-                    textShadow: 'none',
-                    boxShadow: 'none',
                   }}
                   {...props}
                 >
@@ -175,14 +216,9 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
               );
             }
             
-            const codeContent = String(children).replace(/\n$/, '');
-            
             if (language === 'mermaid') {
-              return (
-                <div style={{ margin: '16px 0' }}>
-                  <MermaidDiagram code={codeContent} />
-                </div>
-              );
+              const mermaidId = `m${Date.now()}-${mermaidCounterRef.current++}`;
+              return <MermaidBlock code={codeContent} id={mermaidId} />;
             }
             
             const languageColors: Record<string, string> = {
@@ -236,14 +272,11 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
                     fontSize: '14px',
                     lineHeight: 1.6,
                     color: 'var(--code-text)',
-                    textShadow: 'none',
-                    boxShadow: 'none',
                   }}
                   codeTagProps={{
                     style: {
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: '14px',
-                      textShadow: 'none',
                     }
                   }}
                   {...props}
@@ -253,39 +286,44 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
               </div>
             );
           },
-          h1: ({ children }) => (
-            <h1 style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
-              {children}
-            </h1>
-          ),
-          h2: ({ children }) => (
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
-              {children}
-            </h2>
-          ),
-          h3: ({ children }) => (
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
-              {children}
-            </h3>
-          ),
-          p: ({ children }) => {
+          h1: ({ children }) => {
+            const id = generateHeadingId(children);
             return (
-              <p style={{ marginBottom: '1rem', color: 'var(--foreground)', lineHeight: 1.8 }}>
-                {Array.isArray(children) 
-                  ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
-                  : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
-                }
-              </p>
+              <h1 id={id} style={{ fontSize: '1.75rem', fontWeight: 700, marginBottom: '1rem', color: 'var(--foreground-title)', borderBottom: '1px solid var(--card-border)', paddingBottom: '0.75rem' }}>
+                {children}
+              </h1>
             );
           },
+          h2: ({ children }) => {
+            const id = generateHeadingId(children);
+            return (
+              <h2 id={id} style={{ fontSize: '1.5rem', fontWeight: 600, marginBottom: '0.75rem', marginTop: '1.5rem', color: 'var(--foreground-title)' }}>
+                {children}
+              </h2>
+            );
+          },
+          h3: ({ children }) => {
+            const id = generateHeadingId(children);
+            return (
+              <h3 id={id} style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '0.5rem', marginTop: '1rem', color: 'var(--foreground-title)' }}>
+                {children}
+              </h3>
+            );
+          },
+          p: ({ children }) => (
+            <p style={{ marginBottom: '1rem', color: 'var(--foreground)', lineHeight: 1.8 }}>
+              {Array.isArray(children) 
+                ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
+                : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children}
+            </p>
+          ),
           ul: ({ children }) => <ul style={{ marginBottom: '1rem', marginLeft: '1.5rem', listStyleType: 'disc', color: 'var(--foreground)' }}>{children}</ul>,
           ol: ({ children }) => <ol style={{ marginBottom: '1rem', marginLeft: '1.5rem', listStyleType: 'decimal', color: 'var(--foreground)' }}>{children}</ol>,
           li: ({ children }) => (
             <li style={{ marginBottom: '0.25rem', lineHeight: 1.7 }}>
               {Array.isArray(children) 
-                  ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
-                  : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
-              }
+                ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
+                : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children}
             </li>
           ),
           a: ({ href, children }) => <a href={href} style={{ color: 'var(--primary)' }}>{children}</a>,
@@ -315,8 +353,7 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
             <td style={{ border: '1px solid var(--card-border)', padding: '0.5rem 0.75rem', color: 'var(--foreground)' }}>
               {Array.isArray(children) 
                 ? children.map((child, i) => typeof child === 'string' ? <LaTeXRenderer key={i} content={child} /> : child)
-                : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children
-              }
+                : typeof children === 'string' ? <LaTeXRenderer content={children} /> : children}
             </td>
           ),
         }}
@@ -325,4 +362,6 @@ export default function MarkdownReader({ content, onProgressChange, variant = 'd
       </ReactMarkdown>
     </div>
   );
-}
+});
+
+export default MarkdownReader;

@@ -90,6 +90,30 @@ def _get_allowed_origins() -> list[str]:
     ]
 
 
+def _get_cors_config() -> tuple[list[str], str | None]:
+    """
+    获取 CORS 配置
+    
+    Returns:
+        (allow_origins, allow_origin_regex)
+        - 生产环境：使用精确匹配的 origins 列表
+        - 开发环境：使用正则匹配本地端口，方便本地开发
+    """
+    origins_str = os.getenv("ALLOWED_ORIGINS", "")
+    if origins_str:
+        origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
+        if origins:
+            return origins, None
+    
+    # 开发环境：使用正则匹配所有本地端口
+    if os.getenv("DEV_MODE", "false").lower() == "true":
+        return [], r"http://(localhost|127\.0\.0\.1)(:\d+)?"
+    
+    # 非开发环境且未配置 ALLOWED_ORIGINS：拒绝所有跨域
+    logger.warning("未配置 ALLOWED_ORIGINS 且非开发模式，CORS 将拒绝所有跨域请求")
+    return [], None
+
+
 app = FastAPI(
     title="AILearn Hub API",
     description="AI Learning System - Quiz and Exam Management",
@@ -97,12 +121,13 @@ app = FastAPI(
 )
 
 # CORS配置 - 从环境变量读取允许的源
-allowed_origins = _get_allowed_origins()
-logger.info(f"CORS 允许的源: {allowed_origins}")
+allow_origins, allow_origin_regex = _get_cors_config()
+logger.info(f"CORS 配置: origins={allow_origins}, regex={allow_origin_regex}")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=allow_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

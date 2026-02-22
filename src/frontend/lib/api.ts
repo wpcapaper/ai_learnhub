@@ -59,8 +59,8 @@ export interface UserProgress {
 }
 
 export interface ChapterProgressUpdate {
-  last_position: number;
-  last_percentage: number;
+  position: number;
+  percentage: number;
 }
 
 export interface LearningProgressSummary {
