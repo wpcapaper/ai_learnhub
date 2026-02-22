@@ -127,3 +127,97 @@ def get_course(
         "sort_order": course.sort_order,
         "created_at": course.created_at.isoformat() if course.created_at else None
     }
+
+
+# ==================== 词云 API (用户端) ====================
+# 用户端只提供词云数据读取功能，生成功能在管理端
+
+import os
+from pathlib import Path
+
+
+def get_raw_courses_dir() -> Path:
+    """获取原始课程目录路径"""
+    docker_path = Path("/app/raw_courses")
+    if docker_path.exists():
+        return docker_path
+    return Path(os.path.dirname(__file__)).parent.parent.parent.parent.parent / "raw_courses"
+
+
+@router.get("/{course_id}/wordcloud")
+def get_course_wordcloud(course_id: str):
+    """
+    获取课程级词云数据
+    
+    从课程目录读取 wordcloud.json 文件
+    """
+    from app.services.wordcloud_service import WordcloudService
+    
+    raw_dir = get_raw_courses_dir()
+    course_dir = raw_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = WordcloudService(courses_dir=str(raw_dir))
+    wordcloud_data = wc_service.get_course_wordcloud(course_dir)
+    
+    if not wordcloud_data:
+        raise HTTPException(status_code=404, detail="词云未生成")
+    
+    return wordcloud_data
+
+
+@router.get("/{course_id}/wordcloud/status")
+def get_course_wordcloud_status(course_id: str):
+    """
+    获取课程词云状态
+    
+    返回词云是否存在，用于前端判断是否显示词云入口
+    """
+    from app.services.wordcloud_service import WordcloudService
+    
+    raw_dir = get_raw_courses_dir()
+    course_dir = raw_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = WordcloudService(courses_dir=str(raw_dir))
+    has_wordcloud = wc_service.has_course_wordcloud(course_dir)
+    
+    if has_wordcloud:
+        wordcloud_data = wc_service.get_course_wordcloud(course_dir)
+        return {
+            "has_wordcloud": True,
+            "generated_at": wordcloud_data.get("generated_at"),
+            "words_count": len(wordcloud_data.get("words", []))
+        }
+    else:
+        return {
+            "has_wordcloud": False,
+            "generated_at": None,
+            "words_count": 0
+        }
+
+
+@router.get("/{course_id}/chapters/{chapter_name}/wordcloud")
+def get_chapter_wordcloud(course_id: str, chapter_name: str):
+    """
+    获取章节级词云数据
+    """
+    from app.services.wordcloud_service import WordcloudService
+    
+    raw_dir = get_raw_courses_dir()
+    course_dir = raw_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    wc_service = WordcloudService(courses_dir=str(raw_dir))
+    wordcloud_data = wc_service.get_chapter_wordcloud(course_dir, chapter_name)
+    
+    if not wordcloud_data:
+        raise HTTPException(status_code=404, detail="章节词云未生成")
+    
+    return wordcloud_data
