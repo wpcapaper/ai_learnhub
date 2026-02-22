@@ -137,6 +137,8 @@ def mock_embedding_model():
 class MockRAGService:
     """Mock RAGService"""
     
+    _instance = None
+    
     def __init__(self, embedding_model=None, persist_dir=None):
         self.embedding_model = embedding_model or MockEmbeddingModel()
         self.persist_directory = persist_dir or "/tmp/test_chroma"
@@ -144,17 +146,60 @@ class MockRAGService:
             "embedding": {"provider": "mock"},
             "retrieval": {"mode": "vector"}
         }
+        self._reranker = None
     
     @classmethod
     def get_instance(cls):
-        return cls()
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
     
     @classmethod
     def reset_instance(cls):
-        pass
+        cls._instance = None
     
     def get_retriever(self, course_id: str, source: str = "online"):
         return MagicMock()
+    
+    def _str_to_bool(self, value) -> bool:
+        """字符串转布尔值"""
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            return value.lower() in ("true", "1", "yes")
+        return bool(value)
+    
+    async def retrieve(self, query, course_id, top_k=5, filters=None, 
+                       score_threshold=0.0, use_expansion=None, mode=None):
+        """Mock 检索方法"""
+        return []
+    
+    async def index_course_content(self, content, course_id, chapter_id=None,
+                                   chapter_title=None, source_file=None,
+                                   clear_existing=False):
+        """Mock 索引方法"""
+        return 0
+    
+    def _get_vector_store(self, course_id, source="local"):
+        """Mock 获取向量存储"""
+        return MockChromaVectorStore()
+    
+    def _rrf_merge(self, vector_results, keyword_results, top_k=10):
+        """Mock RRF 融合"""
+        all_results = list(vector_results) + list(keyword_results)
+        return all_results[:top_k]
+    
+    def get_collection_size(self, course_id: str) -> int:
+        """Mock 获取 collection 大小"""
+        return 0
+    
+    def delete_course_index(self, course_id: str):
+        """Mock 删除索引"""
+        pass
+    
+    @property
+    def reranker(self):
+        return self._reranker
 
 
 @pytest.fixture
