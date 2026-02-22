@@ -70,11 +70,11 @@ export default function WordcloudManager({
     const response = await adminApi.generateCourseWordcloud(courseId);
     
     if (response.success && response.data) {
-      setCourseWordcloud(response.data.data);
+      setCourseWordcloud(response.data);
       setCourseStatus({
         has_wordcloud: true,
-        generated_at: response.data.data.generated_at,
-        words_count: response.data.data.words.length
+        generated_at: response.data.generated_at,
+        words_count: response.data.words.length
       });
     } else {
       setError(response.error || '生成失败');
@@ -129,7 +129,7 @@ export default function WordcloudManager({
     const response = await adminApi.generateChapterWordcloud(courseId, chapterName);
     
     if (response.success && response.data) {
-      setChapterWordcloud(response.data.data);
+      setChapterWordcloud(response.data);
       loadChaptersStatus();
     } else {
       setError(response.error || '生成失败');

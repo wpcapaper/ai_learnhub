@@ -76,8 +76,7 @@ export default function KnowledgeBasePage() {
   const [loading, setLoading] = useState(true);
   const [batchIndexing, setBatchIndexing] = useState(false);
   const [batchProgress, setBatchProgress] = useState<string>('');
-  const [syncingCourse, setSyncingCourse] = useState(false);
-  const [syncProgress, setSyncProgress] = useState<string>('');
+  // syncingCourse 和 syncProgress 已移除
   const [toasts, setToasts] = useState<Toast[]>([]);
   
   // 待处理任务状态：key 为 task_id，value 为任务详情
@@ -367,23 +366,7 @@ export default function KnowledgeBasePage() {
     }
   };
 
-  const handleSyncCourseToOnline = async () => {
-    if (!selectedCourse || syncingCourse || !selectedCourse.isImported) return;
-    
-    setSyncingCourse(true);
-    setSyncProgress('正在同步...');
-    
-    const res = await adminApi.syncCourseToOnline(selectedCourse.code);
-    
-    if (res.success && res.data) {
-      showToast('success', res.data.message);
-      setSyncProgress('');
-    } else {
-      showToast('error', `同步失败: ${res.error}`);
-    }
-    
-    setSyncingCourse(false);
-  };
+  // syncCourseToOnline 功能已移除
 
   const getIndexedCount = () => {
     if (!selectedCourse) return { indexed: 0, total: 0 };
@@ -574,11 +557,11 @@ export default function KnowledgeBasePage() {
               </button>
               {selectedCourse.isImported && (
                 <button
-                  onClick={handleSyncCourseToOnline}
-                  disabled={syncingCourse}
+                  onClick={() => showToast("info", "同步功能已移除")}
+                  disabled={false}
                   className="btn btn-secondary text-sm"
                 >
-                  {syncingCourse ? '同步中...' : '一键同步到线上'}
+                  查看导入说明
                 </button>
               )}
             </div>
@@ -857,21 +840,7 @@ function ChunksTab({
     setChunkDetailLoading(false);
   };
 
-  // 同步到线上课程：将本地分块同步为线上课程分块
-  const handleSyncToOnline = async () => {
-    if (!tempRef || !realChapterId || syncing) return;
-    
-    setSyncing(true);
-    const res = await adminApi.syncChunksToDb(tempRef, realChapterId);
-    setSyncing(false);
-    
-    if (res.success) {
-      showToast('success', res.data?.message || '同步成功');
-      loadChunks(true);
-    } else {
-      showToast('error', `同步失败: ${res.error}`);
-    }
-  };
+  // syncChunksToDb 功能已移除
 
   // Token 级别配置
   const TOKEN_LEVELS = {
@@ -913,7 +882,7 @@ function ChunksTab({
             </div>
           ) : (
             <button 
-              onClick={handleSyncToOnline}
+              onClick={() => showToast('info', '同步功能已移除')}
               disabled={syncing || chunks.length === 0}
               className="btn btn-primary text-sm flex items-center gap-2 whitespace-nowrap"
               title={chunks.length === 0 ? '请先建立索引' : '同步分块到线上课程'}

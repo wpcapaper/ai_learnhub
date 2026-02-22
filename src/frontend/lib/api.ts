@@ -152,7 +152,7 @@ export interface WordcloudStatus {
 export interface WordcloudData {
   version: string;
   generated_at: string;
-  words: Array<{ text: string; value: number }>;
+  words: Array<{ word: string; weight: number }>;
   source_stats: {
     total_chars: number;
     unique_words: number;
