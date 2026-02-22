@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
 - 目录栏当前章节增加加粗和加粗边框效果
 - MarkdownReader 底部添加 60vh 占位，确保最后章节可滚动到视口顶部
 - 目录栏点击支持 URL hash 更新
+- 目录栏性能优化：RAF 节流、缓存 DOM 查询、useCallback
+- 目录栏当前章节自动滚动到可见区域
 
 ### Files
 - `src/frontend/components/OutlineNav.tsx`

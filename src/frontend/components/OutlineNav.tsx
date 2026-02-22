@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 
 interface OutlineItem {
   id: string;
@@ -19,6 +19,9 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
   const [activeId, setActiveId] = useState<string>('');
   
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const headingElsRef = useRef<Element[]>([]);
+  const navListRef = useRef<HTMLDivElement | null>(null);
+  const activeButtonRef = useRef<HTMLButtonElement | null>(null);
   containerRef.current = scrollContainer;
 
   // 从 DOM 中读取 headings
@@ -28,7 +31,9 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
     
     const updateHeadings = () => {
       const headingEls = container.querySelectorAll('h1[id], h2[id], h3[id]');
-      const newHeadings: OutlineItem[] = Array.from(headingEls).map(el => ({
+      headingElsRef.current = Array.from(headingEls);
+      
+      const newHeadings: OutlineItem[] = headingElsRef.current.map(el => ({
         id: el.id,
         level: parseInt(el.tagName.charAt(1)),
         text: el.textContent?.trim() || '',
@@ -36,43 +41,67 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
       setHeadings(newHeadings);
     };
     
-    // 初始读取
     updateHeadings();
     
-    // 使用 MutationObserver 监听 DOM 变化
     const observer = new MutationObserver(updateHeadings);
     observer.observe(container, { childList: true, subtree: true });
     
     return () => observer.disconnect();
   }, [scrollContainer]);
 
-  // 滚动事件处理
+  // 当 activeId 变化时，自动滚动目录使当前项可见
+  useEffect(() => {
+    if (activeButtonRef.current && navListRef.current) {
+      const button = activeButtonRef.current;
+      const container = navListRef.current;
+      
+      const buttonRect = button.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+      
+      // 检查是否在视口内
+      const isAbove = buttonRect.top < containerRect.top;
+      const isBelow = buttonRect.bottom > containerRect.bottom;
+      
+      if (isAbove || isBelow) {
+        button.scrollIntoView({
+          block: 'nearest',
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [activeId]);
+
+  // 滚动事件处理 - 使用 RAF 节流
   useEffect(() => {
     const container = scrollContainer;
     if (!container) return;
 
+    let rafId: number | null = null;
+
     const onScroll = () => {
-      const el = containerRef.current;
-      if (!el) return;
+      if (rafId) return; // 已有待处理的帧，跳过
       
-      const headingEls = el.querySelectorAll('h1[id], h2[id], h3[id]');
-      let currentId = '';
-      let minDistance = Infinity;
-      
-      headingEls.forEach((heading) => {
-        const rect = heading.getBoundingClientRect();
-        const containerRect = el.getBoundingClientRect();
-        const relativeTop = rect.top - containerRect.top;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        const el = containerRef.current;
+        if (!el) return;
         
-        if (relativeTop <= 100 && Math.abs(relativeTop) < minDistance) {
-          minDistance = Math.abs(relativeTop);
-          currentId = heading.id;
+        const containerRect = el.getBoundingClientRect();
+        let currentId = '';
+        let minDistance = Infinity;
+        
+        for (const heading of headingElsRef.current) {
+          const rect = heading.getBoundingClientRect();
+          const relativeTop = rect.top - containerRect.top;
+          
+          if (relativeTop <= 100 && Math.abs(relativeTop) < minDistance) {
+            minDistance = Math.abs(relativeTop);
+            currentId = heading.id;
+          }
         }
+        
+        setActiveId(prev => currentId && currentId !== prev ? currentId : prev);
       });
-      
-      if (currentId && currentId !== activeId) {
-        setActiveId(currentId);
-      }
     };
 
     container.addEventListener('scroll', onScroll, { passive: true });
@@ -80,19 +109,18 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
     
     return () => {
       container.removeEventListener('scroll', onScroll);
+      if (rafId) cancelAnimationFrame(rafId);
     };
-  }, [scrollContainer, activeId]);
+  }, [scrollContainer]);
 
   // 点击跳转
-  const handleItemClick = (headingId: string) => {
+  const handleItemClick = useCallback((headingId: string) => {
     const container = containerRef.current;
     if (!container) return;
     
-    // 更新 URL hash
     window.history.pushState(null, '', `#${headingId}`);
     setActiveId(headingId);
     
-    // 查找并滚动到目标
     const targetEl = container.querySelector(`#${CSS.escape(headingId)}`);
     if (targetEl) {
       const containerRect = container.getBoundingClientRect();
@@ -104,7 +132,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
         behavior: 'smooth',
       });
     }
-  };
+  }, []);
 
   if (headings.length === 0 || !visible) {
     return null;
@@ -119,7 +147,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
         目录
       </div>
       
-      <div className="flex-1 overflow-y-auto py-2">
+      <div ref={navListRef} className="flex-1 overflow-y-auto py-2">
         {headings.map((heading) => {
           const indentLevel = heading.level - 1;
           const paddingLeft = 12 + indentLevel * 12;
@@ -128,6 +156,7 @@ export default function OutlineNav({ content, scrollContainer, visible = true }:
           return (
             <button
               key={heading.id}
+              ref={isActive ? activeButtonRef : undefined}
               onClick={() => handleItemClick(heading.id)}
               className="w-full text-left py-1.5 text-sm truncate transition-all duration-150"
               style={{
