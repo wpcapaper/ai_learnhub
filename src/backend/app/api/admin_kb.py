@@ -469,14 +469,19 @@ async def sync_chunks_to_db(
             new_chunk_id = f"sync_{chapter_id_hash}_{i:04d}"
             old_metadata = chunk.get("metadata", {})
             
+            # 统一使用新的 metadata 字段（与 sync-all 保持一致）
             new_metadata = {
                 **old_metadata,
-                "chapter_id": chapter_id,
-                "course_id": db_chapter.course_id,
-                "synced_from": temp_ref,
+                "course_code": course_code,                    # 课程标识
+                "db_course_id": str(db_chapter.course_id),     # 数据库课程 UUID
+                "db_chapter_id": str(chapter_id),              # 数据库章节 UUID
                 "synced_at": now_iso,
                 "strategy_version": CURRENT_STRATEGY_VERSION,
             }
+            
+            # 删除旧字段，避免混淆
+            new_metadata.pop("chapter_id", None)
+            new_metadata.pop("course_id", None)
             
             new_chunks_data.append({
                 "id": new_chunk_id,
@@ -656,7 +661,6 @@ async def sync_course_to_online(
                     "chapter_code": chapter_code,        # 章节标识
                     "db_course_id": str(course.id),      # 数据库课程 UUID
                     "db_chapter_id": str(db_chapter.id), # 数据库章节 UUID
-                    "synced_from": old_metadata.get("chapter_id", ""),  # 原始 temp_ref
                     "synced_at": now_iso,
                     "strategy_version": CURRENT_STRATEGY_VERSION,
                 }
@@ -956,6 +960,9 @@ async def list_chapter_chunks_by_id(
     if not course_dir:
         raise HTTPException(status_code=404, detail="课程目录不存在")
     
+    # 获取课程目录名（用于构建 collection 名称）
+    dir_name = course_dir.name
+    
     try:
         rag_service = RAGService.get_instance()
         store = ChromaVectorStore(
@@ -968,7 +975,8 @@ async def list_chapter_chunks_by_id(
         for chunk in all_chunks:
             metadata = chunk.get("metadata", {})
             
-            if metadata.get("chapter_id") != chapter_id:
+            # 使用 db_chapter_id 字段过滤
+            if metadata.get("db_chapter_id") != chapter_id:
                 continue
             
             if content_type and metadata.get("content_type") != content_type:
