@@ -496,6 +496,12 @@ async def sync_chunks_to_db(
             and chunk["id"].startswith(f"sync_{chapter_id_hash}_")
         ]
         
+        # 步骤4：写入新分块到线上数据源
+        if new_chunks_data and new_embeddings:
+            online_store.add_chunks(new_chunks_data, new_embeddings)
+        
+        
+        
         # 步骤5：删除旧的线上分块
         if old_synced_ids:
             online_store.delete_chunks(old_synced_ids)
@@ -939,7 +945,7 @@ async def list_chapter_chunks_by_id(
     try:
         rag_service = RAGService.get_instance()
         store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_online_{course.code}"),
+            collection_name=normalize_collection_name(f"course_online_{dir_name}"),
             persist_directory=rag_service.persist_directory
         )
         all_chunks = store.get_all_chunks()
@@ -1243,71 +1249,7 @@ async def reindex_chapter(
         raise HTTPException(status_code=500, detail=f"索引失败: {str(e)}")
 
 
-# ==================== 文档块管理 API（通过 ChromaDB）====================
 
-@router.get("/chapters/{chapter_id}/chunks", response_model=ChunkListResponse)
-async def list_chapter_chunks(
-    chapter_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    content_type: Optional[str] = None,
-    search: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    获取章节的文档块列表（从 ChromaDB 获取）
-    
-    注意：文档块数据存储在 ChromaDB，与业务数据库完全解耦
-    """
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-    
-    try:
-        store = get_chroma_store(chapter_id)
-        
-        # 获取所有文档块
-        all_chunks = store.get_all_chunks()
-        
-        # 过滤
-        filtered_chunks = []
-        for chunk in all_chunks:
-            metadata = chunk.get("metadata", {})
-            
-            if content_type and metadata.get("content_type") != content_type:
-                continue
-            if search and search.lower() not in chunk.get("content", "").lower():
-                continue
-            
-            filtered_chunks.append({
-                "id": chunk.get("id"),
-                "content": chunk.get("content", "")[:200] + "..." if len(chunk.get("content", "")) > 200 else chunk.get("content", ""),
-                "content_type": metadata.get("content_type", "text"),
-                "source_file": metadata.get("source_file"),
-                "char_count": len(chunk.get("content", "")),
-                "is_active": metadata.get("is_active", True),
-            })
-        
-        total = len(filtered_chunks)
-        
-        # 分页
-        offset = (page - 1) * page_size
-        paginated_chunks = filtered_chunks[offset:offset + page_size]
-        
-        return ChunkListResponse(
-            chunks=paginated_chunks,
-            total=total,
-            page=page,
-            page_size=page_size
-        )
-        
-    except Exception:
-        return ChunkListResponse(
-            chunks=[],
-            total=0,
-            page=page,
-            page_size=page_size
-        )
 
 
 # ==================== 召回测试 API ====================
