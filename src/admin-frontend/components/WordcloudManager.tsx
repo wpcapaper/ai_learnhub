@@ -1,12 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { 
   adminApi, 
   WordcloudData, 
   WordcloudStatus,
   ChapterWordcloudStatus 
 } from '@/lib/api';
+
+const ReactWordcloud = dynamic(
+  () => import('@cp949/react-wordcloud').then(mod => mod.ReactWordcloud),
+  { ssr: false, loading: () => <div className="h-[200px] flex items-center justify-center">Loading...</div> }
+);
 
 interface WordcloudManagerProps {
   courseId: string;
@@ -28,7 +34,6 @@ export default function WordcloudManager({
   const [chapterWordcloud, setChapterWordcloud] = useState<WordcloudData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // 加载词云状态
   useEffect(() => {
     loadWordcloudStatus();
     loadChaptersStatus();
@@ -58,7 +63,6 @@ export default function WordcloudManager({
     }
   };
 
-  // 生成课程词云
   const handleGenerateCourseWordcloud = async () => {
     setLoading(true);
     setError(null);
@@ -79,7 +83,6 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  // 批量生成所有词云
   const handleBatchGenerate = async () => {
     setLoading(true);
     setError(null);
@@ -103,7 +106,6 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  // 删除课程词云
   const handleDeleteCourseWordcloud = async () => {
     if (!confirm('确定要删除课程词云吗？')) return;
     
@@ -120,7 +122,6 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  // 生成章节词云
   const handleGenerateChapterWordcloud = async (chapterName: string) => {
     setLoading(true);
     setError(null);
@@ -137,7 +138,6 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  // 加载章节词云
   const handleViewChapterWordcloud = async (chapterName: string) => {
     setLoading(true);
     setSelectedChapter(chapterName);
@@ -153,38 +153,37 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  // 词云预览组件
-  const WordcloudPreview = ({ data }: { data: WordcloudData }) => {
-    const maxWeight = Math.max(...data.words.map(w => w.weight));
+  const WordcloudPreview = ({ data, height = 400 }: { data: WordcloudData; height?: number }) => {
+    const words = useMemo(() => 
+      data.words.slice(0, 50).map(w => ({
+        text: w.word,
+        value: Math.round(w.weight * 1000),
+      })), [data]);
+    
+    const options = useMemo(() => ({
+      fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif',
+      fontSizes: [14, 64] as [number, number],
+      rotations: 1,
+      rotationAngles: [0, 0] as [number, number],
+      padding: 2,
+      scale: 'linear' as const,
+      deterministic: true,
+      randomSeed: 'admin-wordcloud-seed' as const,
+      colors: ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#3b82f6', '#ec4899'],
+    }), []);
+    
+    const callbacks = useMemo(() => ({
+      getWordTooltip: (word: { text: string; value: number }) => 
+        `${word.text}: ${(word.value / 10).toFixed(1)}%`,
+    }), []);
     
     return (
-      <div className="mt-4 p-4 rounded-lg bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)]">
-        <div className="flex flex-wrap gap-2 justify-center">
-          {data.words.slice(0, 30).map((word, index) => {
-            const fontSize = 12 + (word.weight / maxWeight) * 24;
-            const opacity = 0.5 + (word.weight / maxWeight) * 0.5;
-            const colors = ['#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899'];
-            const color = colors[index % colors.length];
-            
-            return (
-              <span
-                key={index}
-                style={{
-                  fontSize: `${fontSize}px`,
-                  opacity,
-                  color,
-                  fontWeight: word.weight > maxWeight * 0.7 ? 'bold' : 'normal',
-                }}
-                className="transition-all hover:scale-110 cursor-default"
-              >
-                {word.word}
-              </span>
-            );
-          })}
+      <div className="mt-4 rounded-lg bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.06)] overflow-hidden">
+        <div style={{ height: `${height}px` }} className="p-2 flex items-center justify-center">
+          <ReactWordcloud words={words} options={options} callbacks={callbacks} />
         </div>
-        <div className="mt-4 text-xs text-center text-[#71717a]">
-          共 {data.words.length} 个关键词 | 
-          生成时间: {new Date(data.generated_at).toLocaleString()}
+        <div className="px-3 py-2 border-t border-[rgba(255,255,255,0.06)] text-xs text-center text-[#71717a]">
+          {data.words.length} 个关键词 | {new Date(data.generated_at).toLocaleString()}
         </div>
       </div>
     );
@@ -193,25 +192,18 @@ export default function WordcloudManager({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
       <div className="bg-[#18181b] rounded-xl border border-[rgba(255,255,255,0.06)] w-full max-w-3xl max-h-[90vh] overflow-hidden">
-        {/* 头部 */}
         <div className="flex items-center justify-between p-4 border-b border-[rgba(255,255,255,0.06)]">
           <div>
-            <h2 className="text-lg font-semibold text-[#fafafa]">
-              📊 词云管理
-            </h2>
+            <h2 className="text-lg font-semibold text-[#fafafa]">📊 词云管理</h2>
             <p className="text-sm text-[#71717a]">{courseName}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="text-[#71717a] hover:text-white transition-colors"
-          >
+          <button onClick={onClose} className="text-[#71717a] hover:text-white transition-colors">
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {/* 错误提示 */}
         {error && (
           <div className="mx-4 mt-4 p-3 rounded-lg bg-[rgba(239,68,68,0.1)] border border-[rgba(239,68,68,0.2)] text-[#f87171] text-sm">
             {error}
@@ -219,14 +211,11 @@ export default function WordcloudManager({
           </div>
         )}
 
-        {/* Tab 切换 */}
         <div className="flex gap-2 p-4 border-b border-[rgba(255,255,255,0.06)]">
           <button
             onClick={() => setActiveTab('course')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === 'course'
-                ? 'bg-[rgba(139,92,246,0.15)] text-[#a78bfa]'
-                : 'text-[#71717a] hover:text-[#a1a1aa]'
+              activeTab === 'course' ? 'bg-[rgba(139,92,246,0.15)] text-[#a78bfa]' : 'text-[#71717a] hover:text-[#a1a1aa]'
             }`}
           >
             课程词云
@@ -234,16 +223,13 @@ export default function WordcloudManager({
           <button
             onClick={() => setActiveTab('chapters')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === 'chapters'
-                ? 'bg-[rgba(139,92,246,0.15)] text-[#a78bfa]'
-                : 'text-[#71717a] hover:text-[#a1a1aa]'
+              activeTab === 'chapters' ? 'bg-[rgba(139,92,246,0.15)] text-[#a78bfa]' : 'text-[#71717a] hover:text-[#a1a1aa]'
             }`}
           >
             章节词云
           </button>
         </div>
 
-        {/* 内容区 */}
         <div className="p-4 overflow-y-auto max-h-[60vh]">
           {loading && (
             <div className="flex items-center justify-center py-8">
@@ -253,15 +239,12 @@ export default function WordcloudManager({
 
           {!loading && activeTab === 'course' && (
             <div>
-              {/* 课程词云状态和操作 */}
               <div className="flex items-center justify-between mb-4">
                 <div>
                   {courseStatus?.has_wordcloud ? (
                     <div className="text-sm">
                       <span className="text-[#4ade80]">✓ 已生成</span>
-                      <span className="text-[#71717a] ml-2">
-                        {courseStatus.words_count} 个关键词
-                      </span>
+                      <span className="text-[#71717a] ml-2">{courseStatus.words_count} 个关键词</span>
                     </div>
                   ) : (
                     <span className="text-sm text-[#71717a]">未生成</span>
@@ -294,16 +277,12 @@ export default function WordcloudManager({
                 </div>
               </div>
 
-              {/* 词云预览 */}
-              {courseWordcloud && (
-                <WordcloudPreview data={courseWordcloud} />
-              )}
+              {courseWordcloud && <WordcloudPreview data={courseWordcloud} />}
             </div>
           )}
 
           {!loading && activeTab === 'chapters' && (
             <div>
-              {/* 章节列表 */}
               <div className="flex justify-end mb-4">
                 <button
                   onClick={handleBatchGenerate}
@@ -347,20 +326,15 @@ export default function WordcloudManager({
                 ))}
               </div>
 
-              {/* 选中章节的词云预览 */}
               {selectedChapter && chapterWordcloud && (
                 <div className="mt-4">
-                  <h3 className="text-sm font-medium text-[#fafafa] mb-2">
-                    {selectedChapter}
-                  </h3>
-                  <WordcloudPreview data={chapterWordcloud} />
+                  <h3 className="text-sm font-medium text-[#fafafa] mb-2">{selectedChapter}</h3>
+                  <WordcloudPreview data={chapterWordcloud} height={300} />
                 </div>
               )}
 
               {chapters.length === 0 && (
-                <div className="text-center py-8 text-[#71717a]">
-                  暂无章节数据
-                </div>
+                <div className="text-center py-8 text-[#71717a]">暂无章节数据</div>
               )}
             </div>
           )}
