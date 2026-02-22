@@ -68,28 +68,6 @@ try:
 except ImportError as e:
     logger.info(f"Admin 模块未安装，相关接口不可用: {e}")
 
-def _get_allowed_origins() -> list[str]:
-    """
-    获取 CORS 允许的源列表
-    
-    从环境变量 ALLOWED_ORIGINS 读取，多个源用逗号分隔。
-    未设置时使用默认的本地开发源。
-    """
-    origins_str = os.getenv("ALLOWED_ORIGINS", "")
-    if origins_str:
-        origins = [origin.strip() for origin in origins_str.split(",") if origin.strip()]
-        if origins:
-            return origins
-    
-    # 默认：本地开发环境
-    return [
-        "http://localhost:3000",
-        "http://localhost:8080",
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:8080",
-    ]
-
-
 def _get_cors_config() -> tuple[list[str], str | None]:
     """
     获取 CORS 配置
@@ -124,6 +102,13 @@ app = FastAPI(
 allow_origins, allow_origin_regex = _get_cors_config()
 logger.info(f"CORS 配置: origins={allow_origins}, regex={allow_origin_regex}")
 
+# ⚠️ 中间件顺序很重要：栈式执行（后添加的先执行）
+# CORS 必须最后添加，这样即使是其他中间件拒绝的请求，响应也会带 CORS headers
+
+# Admin API IP 白名单中间件（保护 /api/admin/* 路由）
+app.add_middleware(AdminIPWhitelistMiddleware)
+
+# CORS 中间件（最后添加，最先执行）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allow_origins,
@@ -132,9 +117,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Admin API IP 白名单中间件（保护 /api/admin/* 路由）
-app.add_middleware(AdminIPWhitelistMiddleware)
 
 # 包含所有路由
 app.include_router(users.router, prefix="/api", tags=["用户管理"])

@@ -138,6 +138,10 @@ class AdminIPWhitelistMiddleware(BaseHTTPMiddleware):
         
         client_ip = get_client_ip(request)
         
+        # 开发模式：允许所有 IP（白名单包含 "*"）
+        if "*" in self.allowed_ips:
+            return await call_next(request)
+        
         # 检查 IP 是否在白名单中
         if client_ip not in self.allowed_ips:
             # 额外检查：localhost 可能有不同的表示形式
