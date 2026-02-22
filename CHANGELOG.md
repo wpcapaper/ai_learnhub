@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [mermaid_progress_fix_20260222] - 2026-02-22
+
+### Fixed
+- Mermaid 流程图节点文字被截断的问题
+- Progress 接口传递浮点数导致 HTTP 422 错误
+
+### Changed
+- 增加 Mermaid 节点内边距配置 (padding: 15)
+- Progress 接口的 position 和 percentage 使用 Math.round() 取整
+
+### Files
+- `src/frontend/components/MarkdownReader.tsx`
+- `src/frontend/app/learning/page.tsx`
+
+详见：`~/Codes/vibe-coding-logs/change_log/aie55_llm5_learnhub/mermaid_progress_fix_20260222.md`
+
 ## [code_block_theme_fix_20260222] - 2026-02-22
 
 ### Fixed
