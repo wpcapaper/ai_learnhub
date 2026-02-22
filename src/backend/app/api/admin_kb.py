@@ -24,7 +24,8 @@ import logging
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models import Chapter, ChapterKBConfig
-from app.rag.service import RAGService, normalize_collection_name
+from app.rag.service import RAGService
+from app.rag.utils import normalize_collection_name
 from app.rag.vector_store import ChromaVectorStore
 from app.tasks import enqueue_task, get_job_status, index_chapter, index_course
 
