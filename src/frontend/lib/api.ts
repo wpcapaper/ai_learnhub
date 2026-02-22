@@ -149,6 +149,18 @@ export interface WordcloudStatus {
   words_count: number;
 }
 
+export interface WordcloudData {
+  version: string;
+  generated_at: string;
+  words: Array<{ text: string; value: number }>;
+  source_stats: {
+    total_chars: number;
+    unique_words: number;
+    top_words_count: number;
+    total_files?: number;
+  };
+}
+
 export interface AnswerSubmission {
   question_id: string;
   answer: string;
@@ -385,6 +397,10 @@ class ApiClient {
   // 词云 API
   async getCourseWordcloudStatus(courseId: string): Promise<WordcloudStatus> {
     return this.fetchJson<WordcloudStatus>(`/api/admin/courses/${courseId}/wordcloud/status`);
+  }
+
+  async getCourseWordcloud(courseId: string): Promise<WordcloudData> {
+    return this.fetchJson<WordcloudData>(`/api/admin/courses/${courseId}/wordcloud`);
   }
 
   // AI 对话 API（流式响应）
