@@ -702,7 +702,7 @@ async def import_courses_to_database():
                     chapter = Chapter(
                         id=str(uuid.uuid4()),
                         course_id=course.id,
-                        code=chapter_info.get("code"),  # chapter_code for identification
+                        # code 字段已删除
                         title=chapter_info.get("title", ""),
                         content_markdown=markdown_content,
                         sort_order=chapter_info.get("sort_order", 0)
@@ -799,7 +799,7 @@ async def import_single_course_to_database(course_id: str):
             chapter = Chapter(
                 id=str(uuid.uuid4()),
                 course_id=course.id,
-                code=chapter_info.get("code"),  # chapter_code for identification
+                # code 字段已删除
                 title=chapter_info.get("title", ""),
                 content_markdown=markdown_content,
                 sort_order=chapter_info.get("sort_order", 0)

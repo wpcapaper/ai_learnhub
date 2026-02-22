@@ -15,10 +15,11 @@ class Chapter(Base):
 
     id = Column(String(36), primary_key=True, index=True)
     course_id = Column(String(36), ForeignKey('courses.id'), nullable=False, index=True)  # 所属课程ID
-    code = Column(String(100), nullable=True, index=True)  # 章节唯一标识（课程内），如 "introduction"
+    # code 字段已删除，统一用 UUID 标识
     title = Column(String(200), nullable=False)  # 章节标题
     content_markdown = Column(Text, nullable=False)  # Markdown内容
     sort_order = Column(Integer, default=0)  # 章节排序
+    is_active = Column(Boolean, default=False)  # 默认未启用
     created_at = Column(DateTime, default=datetime.utcnow)  # 创建时间
     is_deleted = Column(Boolean, default=False)  # 是否删除
 
@@ -27,4 +28,4 @@ class Chapter(Base):
     reading_progresses = relationship("ReadingProgress", backref="chapter")
 
     def __repr__(self):
-        return f"<Chapter(id='{self.id}' code='{self.code}' title='{self.title}' course_id='{self.course_id}')>"
+        return f"<Chapter(id='{self.id}' title='{self.title}' course_id='{self.course_id}')>"

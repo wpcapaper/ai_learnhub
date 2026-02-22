@@ -12,7 +12,7 @@ class Course(Base):
     __tablename__ = "courses"
 
     id = Column(String(36), primary_key=True, index=True)
-    code = Column(String(50), unique=True, nullable=False, index=True)
+    code = Column(String(50), nullable=False, index=True)  # 去掉 unique，允许多版本
     title = Column(String(200), nullable=False)
     description = Column(Text)
     course_type = Column(String(20), nullable=False, index=True)
@@ -20,7 +20,7 @@ class Course(Base):
 
     default_exam_config = Column(JSON, nullable=True, default=None)
 
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=False)  # 默认未启用，需手动发布
     sort_order = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     is_deleted = Column(Boolean, default=False)
