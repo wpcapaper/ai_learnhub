@@ -403,6 +403,10 @@ class ApiClient {
     return this.fetchJson<WordcloudData>(`/api/admin/courses/${courseId}/wordcloud`);
   }
 
+  async getChapterWordcloud(courseId: string, chapterName: string): Promise<WordcloudData> {
+    return this.fetchJson<WordcloudData>(`/api/admin/courses/${courseId}/chapters/${chapterName}/wordcloud`);
+  }
+
   // AI 对话 API（流式响应）
   async aiChatStream(chapterId: string, message: string, userId?: string): Promise<ReadableStream<string>> {
     const body: any = { chapter_id: chapterId, message };
