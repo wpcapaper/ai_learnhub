@@ -579,14 +579,18 @@ async def list_raw_courses():
     return raw_courses
 
 
-@router.get("/markdown-courses", response_model=List[RawCourseInfo])
+@router.get("/markdown-courses", response_model=List[CourseInfo])
 async def list_markdown_courses():
     """
     列出已转换的课程目录（markdown_courses）
     
     扫描 markdown_courses 目录，返回所有已转换待入库的课程
     目录格式：{course_name}_v{version}
+    
+    每个课程必须有 course.json 配置文件
     """
+    import re
+    
     markdown_courses = []
     markdown_dir = get_markdown_courses_dir()
     
@@ -599,37 +603,27 @@ async def list_markdown_courses():
         if course_dir.name.startswith('.'):
             continue
         
-        file_count = 0
-        md_count = 0
+        # 读取 course.json（必须有）
+        course_json = load_course_json(course_dir)
+        if not course_json:
+            continue  # 跳过没有 course.json 的目录
         
-        for f in course_dir.rglob("*"):
-            if f.is_file() and not f.name.startswith('.'):
-                file_count += 1
-                if f.suffix == '.md':
-                    md_count += 1
+        # 加载质量报告
+        quality_report = load_quality_report_from_course(course_dir)
+        quality_score = quality_report.overall_score if quality_report else None
         
-        # 解析版本号
-        version = 1
-        import re
-        version_match = re.search(r'_v(\d+)$', course_dir.name)
-        if version_match:
-            version = int(version_match.group(1))
-        
-        # 提取课程名（去掉版本后缀）
-        course_name = re.sub(r'_v\d+$', '', course_dir.name)
-        
-        markdown_courses.append(RawCourseInfo(
+        markdown_courses.append(CourseInfo(
             id=course_dir.name,
-            name=course_dir.name,
-            path=str(course_dir.relative_to(markdown_dir.parent)),
-            file_count=file_count,
-            has_content=md_count > 0,
-            version=version,
-            course_name=course_name
+            code=course_json.get("code", course_dir.name),
+            title=course_json.get("title", course_dir.name),
+            description=course_json.get("description", ""),
+            chapters=course_json.get("chapters", []),
+            quality_score=quality_score,
+            created_at=None  # markdown 课程没有入库时间
         ))
     
-    # 按课程名和版本排序
-    markdown_courses.sort(key=lambda x: (x.course_name or '', -(x.version or 0)))
+    # 按标题排序
+    markdown_courses.sort(key=lambda x: x.title)
     
     return markdown_courses
 

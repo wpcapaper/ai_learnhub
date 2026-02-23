@@ -54,7 +54,6 @@ interface CourseWithId {
   realCourseId?: string;
   chapters: ChapterWithId[];
   isImported: boolean;
-  version?: number;
 }
 
 // 后端返回的待处理任务结构
@@ -215,10 +214,9 @@ export default function KnowledgeBasePage() {
   const loadData = async () => {
     setLoading(true);
     
-    // 获取 RAG 状态、已转换课程、数据库课程
-    const [statusRes, markdownRes, dbCoursesRes] = await Promise.all([
+    const [statusRes, coursesRes, dbCoursesRes] = await Promise.all([
       adminApi.getRAGStatus(),
-      adminApi.getMarkdownCourses(),
+      adminApi.getCourses(),
       adminApi.getDatabaseCourses(),
     ]);
     
@@ -226,11 +224,10 @@ export default function KnowledgeBasePage() {
       setRAGStatus(statusRes.data);
     }
     
-    if (markdownRes.success && markdownRes.data && dbCoursesRes.success && dbCoursesRes.data) {
+    if (coursesRes.success && coursesRes.data && dbCoursesRes.success && dbCoursesRes.data) {
       const dbCourses = dbCoursesRes.data;
-      const dbCourseMap = new Map(dbCourses.map(c => [c.id, c]));
+      const dbCourseMap = new Map(dbCourses.map(c => [c.code, c]));
       
-      // 获取数据库课程的章节映射
       const dbChaptersPromises = dbCourses.map(async (dbCourse) => {
         try {
           const res = await adminApi.getDatabaseChapters(dbCourse.id);
@@ -247,56 +244,32 @@ export default function KnowledgeBasePage() {
         dbChaptersResults.map(r => [r.courseId, new Map(r.chapters.map(c => [c.title, c.id]))])
       );
       
-      // 加载每个 markdown 课程的 course.json
-      const coursesWithChapters = await Promise.all(
-        markdownRes.data.map(async (mdCourse) => {
-          try {
-            // 读取 course.json 获取章节信息
-            const courseJsonRes = await adminApi.getCourseJson(mdCourse.id);
-            const chapters = courseJsonRes.success && courseJsonRes.data?.chapters 
-              ? courseJsonRes.data.chapters 
-              : [];
-            
-            // 查找对应的数据库课程（通过 course_name 匹配 code）
-            const dbCourse = dbCourses.find(c => c.code === mdCourse.course_name);
-            const isImported = !!dbCourse;
-            const dbChaptersMap = dbCourse ? allDbChaptersMap.get(dbCourse.id) : null;
-            
-            return {
-              id: mdCourse.id,
-              title: mdCourse.course_name || mdCourse.name,
-              code: mdCourse.course_name || mdCourse.id,
-              description: '',
-              realCourseId: dbCourse?.id,
-              chapters: chapters.map((ch: { title: string; file: string; sort_order: number }) => ({
-                title: ch.title,
-                file: ch.file,
-                sort_order: ch.sort_order,
-                realChapterId: dbChaptersMap?.get(ch.title),
-                indexStatus: 'not_indexed',
-                chunkCount: 0
-              })),
-              isImported,
-              version: mdCourse.version
-            };
-          } catch {
-            return {
-              id: mdCourse.id,
-              title: mdCourse.course_name || mdCourse.name,
-              code: mdCourse.course_name || mdCourse.id,
-              description: '',
-              realCourseId: undefined,
-              chapters: [],
-              isImported: false,
-              version: mdCourse.version
-            };
-          }
-        })
-      );
+      const mergedCourses: CourseWithId[] = coursesRes.data.map(course => {
+        const dbCourse = dbCourseMap.get(course.code);
+        const isImported = !!dbCourse;
+        const dbChaptersMap = dbCourse ? allDbChaptersMap.get(dbCourse.id) : null;
+        
+        return {
+          id: course.id,
+          title: course.title,
+          code: course.code,
+          description: course.description,
+          realCourseId: dbCourse?.id,
+          chapters: (course.chapters || []).map(ch => ({
+            title: ch.title,
+            file: ch.file,
+            sort_order: ch.sort_order,
+            realChapterId: dbChaptersMap?.get(ch.title),
+            indexStatus: 'not_indexed',
+            chunkCount: 0
+          })),
+          isImported
+        };
+      });
       
-      setCourses(coursesWithChapters);
-      if (coursesWithChapters.length > 0) {
-        setSelectedCourseId(coursesWithChapters[0].id);
+      setCourses(mergedCourses);
+      if (mergedCourses.length > 0) {
+        setSelectedCourseId(mergedCourses[0].id);
       }
     }
     

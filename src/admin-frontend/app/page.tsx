@@ -41,7 +41,7 @@ export default function CoursesPage() {
     setLoading(true);
     
     const [convertedRes, rawRes, dbRes] = await Promise.all([
-      adminApi.getCourses(),
+      adminApi.getMarkdownCourses(),
       adminApi.getRawCourses(),
       adminApi.getDatabaseCourses(),
     ]);
@@ -437,8 +437,8 @@ export default function CoursesPage() {
           
           {convertedCourses.length === 0 ? (
             <EmptyState 
-              title="暂无转换后的课程" 
-              description="courses 目录下没有课程，请先转换原始课程"
+              title="暂无已转换的课程" 
+              description="markdown_courses 目录下没有课程，请先转换原始课程"
               action={
                 <button onClick={handleConvert} disabled={actionLoading === 'convert'} className="btn btn-primary">
                   转换课程
