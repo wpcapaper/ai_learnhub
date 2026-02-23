@@ -263,8 +263,8 @@ async def convert_courses(background_tasks: BackgroundTasks):
 @router.post("/courses/convert/{course_id}", response_model=ConvertResponse)
 async def convert_single_course(course_id: str):
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    courses_dir = get_courses_dir()
+    raw_dir = get_raw_courses_dir()
+    markdown_dir = get_markdown_courses_dir()
     
     source_dir = raw_dir / course_id
     if not source_dir.exists():
@@ -282,7 +282,7 @@ async def convert_single_course(course_id: str):
     
     pipeline = CoursePipeline(
         raw_courses_dir=str(raw_dir),
-        courses_dir=str(courses_dir)
+        markdown_courses_dir=str(markdown_dir)
     )
     
     result = pipeline.convert_course(RawCourse(
@@ -545,7 +545,6 @@ async def list_raw_courses():
     扫描 raw_courses 目录，返回所有待转换的课程
     """
     raw_courses = []
-    raw_dir = get_raw_courses_dir()
     raw_dir = get_raw_courses_dir()
 
     
