@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [admin-fix-0224] - 2026-02-24
+
+### Fixed
+ Admin API 变量未定义：批量重命名 `course_id` → `course_code` 时漏改函数参数
+ Markdown 转换切碎：`_split_by_h1` 方法将代码块内的注释误判为 H1 标题
+
+### Changed
+ `admin.py`：补全 8 处 URL 参数和 Request 模型字段 `course_id` → `course_code`
+ `converters/__init__.py`：`_split_by_h1` 方法添加代码块检测逻辑
+ `optimization/page.tsx`：前端请求体 `course_id` → `course_code`
+
+### Files
+ `src/backend/app/api/admin.py`
+ `src/backend/app/course_pipeline/converters/__init__.py`
+ `src/admin-frontend/app/optimization/page.tsx`
+
+### Fixed
+- Admin API 变量未定义：`admin.py` 中 6 个函数使用未定义的 `course_code` 变量
+- Markdown 转换切碎：`_split_by_h1` 方法将代码块内的注释误判为 H1 标题
+
+### Changed
+- `admin.py`：修复 6 处 `course_code` -> `course_id` 变量名问题
+- `converters/__init__.py`：`_split_by_h1` 方法添加代码块检测逻辑
+
+### Files
+- `src/backend/app/api/admin.py`
+- `src/backend/app/course_pipeline/converters/__init__.py`
+
+---
+
 ## [wc-fix-0224] - 2026-02-24
 
 ### Fixed

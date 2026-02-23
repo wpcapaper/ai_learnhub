@@ -68,7 +68,7 @@ class ConvertResponse(BaseModel):
 class OptimizationRequest(BaseModel):
     """优化请求"""
     optimization_request: str = "optimization_request"  # 类型鉴别字段
-    course_id: str
+    course_code: str  # markdown_courses 目录名
     strategies: Optional[List[Dict[str, Any]]] = None
 
 
@@ -112,7 +112,7 @@ class DatabaseChapterInfo(BaseModel):
 
 
 class ImportResult(BaseModel):
-    import_result: str
+    import_result: str = "import_result"  # 类型鉴别字段
     success: bool
     message: str
     imported_courses: int = 0
@@ -237,9 +237,14 @@ async def reorder_course_chapters(code: str):
 
 # ==================== 质量评估 API ====================
 
-@router.get("/quality/{course_id}")
-async def get_quality_report(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/quality/{course_code}")
+async def get_quality_report(course_code: str):
+    """获取课程质量报告
+    
+    Args:
+        course_code: markdown_courses 目录名
+    """
+    course_code = validate_course_id(course_code)  # course_code 是目录名
     markdown_dir = get_markdown_courses_dir()
     course_dir = markdown_dir / course_code
     
@@ -285,7 +290,7 @@ async def get_quality_report(course_id: str):
 
 @router.post("/rag/optimize")
 async def run_optimization(request: OptimizationRequest):
-    course_id = validate_course_id(request.course_id)
+    course_code = validate_course_id(request.course_code)  # course_code 是目录名
     markdown_dir = get_markdown_courses_dir()
     course_dir = markdown_dir / course_code
     
@@ -336,11 +341,12 @@ async def run_optimization(request: OptimizationRequest):
     return report
 
 
-@router.get("/rag/optimize/{course_id}")
-async def get_optimization_report(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/rag/optimize/{course_code}")
+async def get_optimization_report(course_code: str):
+    """获取 RAG 优化报告"""
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    report_path = markdown_dir / course_id / "rag_optimization_report.json"
+    report_path = markdown_dir / course_code / "rag_optimization_report.json"
     
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="优化报告不存在，请先运行优化")
@@ -380,7 +386,7 @@ async def update_rag_config(config: Dict[str, Any]):
 
 @router.post("/rag/optimize/stream")
 async def run_optimization_stream(request: OptimizationRequest):
-    course_id = validate_course_id(request.course_id)
+    course_code = validate_course_id(request.course_code)  # course_code 是目录名
     markdown_dir = get_markdown_courses_dir()
     course_dir = markdown_dir / course_code
     
@@ -504,9 +510,10 @@ async def list_markdown_courses():
     return markdown_courses
 
 
-@router.get("/markdown-courses/{course_id}", response_model=CourseInfo)
-async def get_markdown_course(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/markdown-courses/{course_code}", response_model=CourseInfo)
+async def get_markdown_course(course_code: str):
+    """获取已转换课程详情"""
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
     course_dir = markdown_dir / course_code
     
@@ -521,9 +528,9 @@ async def get_markdown_course(course_id: str):
     quality_score = quality_report.overall_score if quality_report else None
     
     return CourseInfo(
-        id=course_id,
-        code=course_json.get("code", course_id),
-        title=course_json.get("title", course_id),
+        id=course_code,
+        code=course_json.get("code", course_code),
+        title=course_json.get("title", course_code),
         description=course_json.get("description", ""),
         chapters=course_json.get("chapters", []),
         quality_score=quality_score,
@@ -534,7 +541,7 @@ async def get_markdown_course(course_id: str):
 @router.get("/markdown-courses/{course_id}/course.json")
 async def get_course_json(course_id: str):
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_code
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -611,7 +618,7 @@ async def import_markdown_course_to_database(course_id: str):
     
     try:
         markdown_dir = get_markdown_courses_dir()
-        course_dir = markdown_dir / course_code
+        course_dir = markdown_dir / course_id
         
         if not course_dir.exists():
             raise HTTPException(status_code=404, detail=f"课程目录不存在: {course_id}")
@@ -630,7 +637,7 @@ async def import_markdown_course_to_database(course_id: str):
         course = Course(
             id=str(uuid.uuid4()),
             code=course_code,
-            title=course_json.get("title", course_id),
+            title=course_json.get("title", course_code),
             description=course_json.get("description", ""),
             course_type=course_json.get("course_type", "learning"),
             cover_image=course_json.get("cover_image"),
