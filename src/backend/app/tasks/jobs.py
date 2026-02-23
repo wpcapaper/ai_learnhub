@@ -10,6 +10,7 @@
 """
 
 import logging
+import os
 import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -67,77 +68,93 @@ def _finish_trace(langfuse_client, trace, start_time, input_data: dict, output_d
 
 
 def generate_wordcloud(
-    chapter_id: str,
-    course_id: str,
-    user_id: Optional[str] = None,
+    course_code: str,
+    chapter_file: Optional[str] = None,
+    top_k: int = 100,
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    生成词云
+    异步生成词云
     
-    基于章节内容生成词云图片。
+    支持课程级和章节级词云生成。
     
     Args:
-        chapter_id: 章节 ID
-        course_id: 课程 ID
-        user_id: 用户 ID（可选）
-        config: 配置参数（可选）
-            - width: 图片宽度
-            - height: 图片高度
-            - max_words: 最大词数
-            - background_color: 背景颜色
+        course_code: 课程代码（目录名）
+        chapter_file: 章节文件名（不含扩展名），为 None 时生成课程级词云
+        top_k: 提取的关键词数量
+        config: 配置参数（可选，保留兼容性）
     
     Returns:
-        包含图片 URL 的字典
+        词云生成结果
     """
+    from pathlib import Path
+    from app.services.wordcloud_service import WordcloudService
+    
     # 创建 trace
     langfuse_client, trace, start_time = _create_trace("generate_wordcloud", ["task", "wordcloud"])
     
     # 准备 trace 输入数据
     input_data = {
-        "chapter_id": chapter_id,
-        "course_id": course_id,
-        "user_id": user_id,
+        "course_code": course_code,
+        "chapter_file": chapter_file,
+        "top_k": top_k,
     }
     
     if trace:
         trace.update(input=input_data)
     
-    logger.info(f"开始生成词云: chapter={chapter_id}")
-    
-    config = config or {}
-    width = config.get("width", 800)
-    height = config.get("height", 400)
-    max_words = config.get("max_words", 100)
-    
     error_occurred = None
     
     try:
-        # TODO: 实现实际的词云生成逻辑
-        # 1. 获取章节内容
-        # 2. 分词和统计
-        # 3. 生成词云图片
-        # 4. 上传到存储并返回 URL
+        # 获取课程目录
+        markdown_dir = Path(os.environ.get("MARKDOWN_COURSES_DIR", "markdown_courses"))
+        course_dir = markdown_dir / course_code
         
-        result = {
-            "image_url": f"/static/wordcloud/{chapter_id}.png",
-            "created_at": datetime.utcnow().isoformat(),
-            "config": {
-                "width": width,
-                "height": height,
-                "max_words": max_words,
+        if not course_dir.exists():
+            raise ValueError(f"课程目录不存在: {course_code}")
+        
+        wc_service = WordcloudService(courses_dir=str(markdown_dir))
+        
+        if chapter_file:
+            # 生成章节词云
+            chapter_path = course_dir / f"{chapter_file}.md"
+            if not chapter_path.exists():
+                raise ValueError(f"章节文件不存在: {chapter_path}")
+            
+            logger.info(f"开始生成章节词云: course={course_code}, chapter={chapter_file}")
+            wordcloud_data = wc_service.generate_chapter_wordcloud(chapter_path, top_k=top_k)
+            
+            result = {
+                "success": True,
+                "course_code": course_code,
+                "chapter_file": chapter_file,
+                "words_count": len(wordcloud_data.get("words", [])),
+                "generated_at": wordcloud_data.get("generated_at"),
             }
-        }
+            
+            logger.info(f"章节词云生成完成: chapter={chapter_file}, words_count={result['words_count']}")
+        else:
+            # 生成课程词云
+            logger.info(f"开始生成课程词云: course={course_code}")
+            wordcloud_data = wc_service.generate_course_wordcloud(course_dir, top_k=top_k)
+            
+            result = {
+                "success": True,
+                "course_code": course_code,
+                "words_count": len(wordcloud_data.get("words", [])),
+                "generated_at": wordcloud_data.get("generated_at"),
+            }
+            
+            logger.info(f"课程词云生成完成: course={course_code}, words_count={result['words_count']}")
         
-        logger.info(f"词云生成完成: chapter={chapter_id}")
         return result
         
     except Exception as e:
         error_occurred = str(e)
+        logger.error(f"词云生成失败: course={course_code}, chapter={chapter_file}, error={str(e)}")
         raise
     finally:
-        # 记录 trace
-        output_data = {"config": {"width": width, "height": height, "max_words": max_words}}
+        output_data = {"success": error_occurred is None}
         _finish_trace(langfuse_client, trace, start_time, input_data, output_data, error_occurred)
 
 

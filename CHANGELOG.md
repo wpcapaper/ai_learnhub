@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [wc-fix-0224] - 2026-02-24
+
+### Fixed
+ 单课程转换 API 章节排序乱序：`admin.py` 手动构建 source_files 时遗漏排序
+ 词云组件崩溃：前端访问 API 返回数据时缺少防御性编程
+
+### Changed
+ `admin.py`：添加 `source_files.sort(key=lambda f: f.path)`
+ `jobs.py`：重写 `generate_wordcloud` 函数支持异步词云生成
+ `WordcloudViewer.tsx`：添加 `?.` 安全访问
+
+### Files
+ `src/backend/app/api/admin.py`
+ `src/backend/app/tasks/jobs.py`
+ `src/frontend/components/WordcloudViewer.tsx`
+
+---
+
 ## [course_import_lifecycle_refactor_20260223] - 2026-02-23
 
 ### Changed

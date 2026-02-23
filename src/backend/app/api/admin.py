@@ -168,6 +168,9 @@ async def convert_single_course(course_name: str):
                 continue
             source_files.append(SourceFile.from_path(str(file_path), str(source_dir)))
     
+    # 按文件名字典序排序，确保章节顺序一致
+    source_files.sort(key=lambda f: f.path)
+    
     if not source_files:
         raise HTTPException(status_code=400, detail=f"课程目录中没有可转换的文件: {course_name}")
     
