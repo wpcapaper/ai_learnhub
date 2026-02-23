@@ -213,15 +213,28 @@ class MarkdownConverter(BaseConverter):
         return chapters
     
     def _split_by_h1(self, content: str) -> List[tuple]:
-        """按一级标题分割内容"""
+        """
+        按一级标题分割内容
+        
+        注意：需要跳过代码块内的内容，避免把代码中的注释（如 # 注释）
+        误判为 Markdown H1 标题
+        """
         sections = []
         lines = content.split('\n')
         
         current_title = "前言"
         current_content = []
+        in_code_block = False  # 跟踪是否在代码块内
         
         for line in lines:
-            if line.startswith('# '):
+            # 检测代码块开始/结束（``` 开头的行）
+            if line.strip().startswith('```'):
+                in_code_block = not in_code_block
+                current_content.append(line)
+                continue
+            
+            # 只有在代码块外部才识别 H1 标题
+            if not in_code_block and line.startswith('# '):
                 # 保存之前的章节
                 if current_content:
                     sections.append((current_title, '\n'.join(current_content)))

@@ -60,7 +60,7 @@ export default function OptimizationPage() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_ADMIN_API_URL || 'http://localhost:8000'}/api/admin/rag/optimize/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ course_id: selectedCourse }),
+        body: JSON.stringify({ course_code: selectedCourse }),
       });
 
       if (!response.ok) {
