@@ -238,7 +238,7 @@ async def reorder_course_chapters(code: str):
 async def get_quality_report(course_id: str):
     course_id = validate_course_id(course_id)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -284,7 +284,7 @@ async def get_quality_report(course_id: str):
 async def run_optimization(request: OptimizationRequest):
     course_id = validate_course_id(request.course_id)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -379,7 +379,7 @@ async def update_rag_config(config: Dict[str, Any]):
 async def run_optimization_stream(request: OptimizationRequest):
     course_id = validate_course_id(request.course_id)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -505,7 +505,7 @@ async def list_markdown_courses():
 async def get_markdown_course(course_id: str):
     course_id = validate_course_id(course_id)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -531,7 +531,7 @@ async def get_markdown_course(course_id: str):
 @router.get("/markdown-courses/{course_id}/course.json")
 async def get_course_json(course_id: str):
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -608,7 +608,7 @@ async def import_markdown_course_to_database(course_id: str):
     
     try:
         markdown_dir = get_markdown_courses_dir()
-        course_dir = markdown_dir / course_id
+        course_dir = markdown_dir / course_code
         
         if not course_dir.exists():
             raise HTTPException(status_code=404, detail=f"课程目录不存在: {course_id}")
@@ -734,21 +734,20 @@ class WordcloudResponse(BaseModel):
 
 
 class WordcloudStatusResponse(BaseModel):
-    wordcloud_status_response: str
     has_wordcloud: bool
     generated_at: Optional[str] = None
     words_count: int = 0
 
 
 class ChapterWordcloudStatus(BaseModel):
-    chapter_wordcloud_status: str
     name: str
+    title: str
     path: str
+    sort_order: int
     has_wordcloud: bool
 
 
 class BatchGenerateResult(BaseModel):
-    batch_generate_result: str
     success: bool
     message: str
     course_wordcloud: Optional[Dict] = None
@@ -757,15 +756,48 @@ class BatchGenerateResult(BaseModel):
     errors: List[str] = []
 
 
+
+def _get_chapter_file_name(course_code: str, sort_order: int) -> str:
+    """
+    从 course.json 获取指定 sort_order 的章节文件名
+    
+    Args:
+        course_code: 课程代码（目录名）
+        sort_order: 章节排序号
+    
+    Returns:
+        章节文件名（不含扩展名），未找到返回 None
+    """
+    import json
+    markdown_dir = get_markdown_courses_dir()
+    course_json_path = markdown_dir / course_code / "course.json"
+    
+    if not course_json_path.exists():
+        return None
+    
+    try:
+        with open(course_json_path, 'r', encoding='utf-8') as f:
+            course_json = json.load(f)
+        
+        for ch in course_json.get("chapters", []):
+            if ch.get("sort_order") == sort_order:
+                from pathlib import Path as PathLib
+                return PathLib(ch.get("file", "")).stem
+    except (json.JSONDecodeError, IOError):
+        pass
+    
+    return None
+
+
 def get_wordcloud_service() -> WordcloudService:
     return WordcloudService(courses_dir=str(get_markdown_courses_dir()))
 
 
-@router.get("/courses/{course_id}/wordcloud")
-async def get_course_wordcloud(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/courses/{course_code}/wordcloud")
+async def get_course_wordcloud(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -779,11 +811,11 @@ async def get_course_wordcloud(course_id: str):
     return wordcloud_data
 
 
-@router.post("/courses/{course_id}/wordcloud")
-async def generate_course_wordcloud(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.post("/courses/{course_code}/wordcloud")
+async def generate_course_wordcloud(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -803,11 +835,11 @@ async def generate_course_wordcloud(course_id: str):
         raise HTTPException(status_code=500, detail=f"词云生成失败: {str(e)}")
 
 
-@router.delete("/courses/{course_id}/wordcloud")
-async def delete_course_wordcloud(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.delete("/courses/{course_code}/wordcloud")
+async def delete_course_wordcloud(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -821,11 +853,11 @@ async def delete_course_wordcloud(course_id: str):
         return {"success": False, "message": "词云不存在"}
 
 
-@router.get("/courses/{course_id}/wordcloud/status", response_model=WordcloudStatusResponse)
-async def get_course_wordcloud_status(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/courses/{course_code}/wordcloud/status", response_model=WordcloudStatusResponse)
+async def get_course_wordcloud_status(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -847,13 +879,16 @@ async def get_course_wordcloud_status(course_id: str):
         )
 
 
-@router.get("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
-async def get_chapter_wordcloud(course_id: str, chapter_name: str):
-    course_id = validate_course_id(course_id)
-    chapter_name = validate_course_id(chapter_name)
+@router.get("/courses/{course_code}/chapters/{chapter_order}/wordcloud")
+async def get_chapter_wordcloud(course_code: str, chapter_order: int):
+    course_code = validate_course_id(course_code)
+    # 通过 sort_order 获取章节文件名
+    chapter_name = _get_chapter_file_name(course_code, chapter_order)
+    if not chapter_name:
+        raise HTTPException(status_code=404, detail=f"章节 {chapter_order} 不存在")
     
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -867,13 +902,16 @@ async def get_chapter_wordcloud(course_id: str, chapter_name: str):
     return wordcloud_data
 
 
-@router.post("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
-async def generate_chapter_wordcloud(course_id: str, chapter_name: str):
-    course_id = validate_course_id(course_id)
-    chapter_name = validate_course_id(chapter_name)
+@router.post("/courses/{course_code}/chapters/{chapter_order}/wordcloud")
+async def generate_chapter_wordcloud(course_code: str, chapter_order: int):
+    course_code = validate_course_id(course_code)
+    # 通过 sort_order 获取章节文件名
+    chapter_name = _get_chapter_file_name(course_code, chapter_order)
+    if not chapter_name:
+        raise HTTPException(status_code=404, detail=f"章节 {chapter_order} 不存在")
     
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -900,11 +938,11 @@ async def generate_chapter_wordcloud(course_id: str, chapter_name: str):
         raise HTTPException(status_code=500, detail=f"词云生成失败: {str(e)}")
 
 
-@router.get("/courses/{course_id}/chapters/wordcloud-status")
-async def list_chapter_wordcloud_status(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.get("/courses/{course_code}/chapters/wordcloud-status")
+async def list_chapter_wordcloud_status(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -915,11 +953,11 @@ async def list_chapter_wordcloud_status(course_id: str):
     return [ChapterWordcloudStatus(**ch) for ch in chapters]
 
 
-@router.post("/courses/{course_id}/wordcloud/batch", response_model=BatchGenerateResult)
-async def batch_generate_wordclouds(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.post("/courses/{course_code}/wordcloud/batch", response_model=BatchGenerateResult)
+async def batch_generate_wordclouds(course_code: str):
+    course_code = validate_course_id(course_code)
     markdown_dir = get_markdown_courses_dir()
-    course_dir = markdown_dir / course_id
+    course_dir = markdown_dir / course_code
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")

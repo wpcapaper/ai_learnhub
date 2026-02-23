@@ -175,3 +175,57 @@ def validate_course_id(course_id: str) -> str:
 def validate_chapter_id(chapter_id: str) -> str:
     """验证章节 ID"""
     return validate_id_path(chapter_id, "章节 ID")
+
+
+def validate_chapter_name(chapter_name: str) -> str:
+    """
+    验证章节名称，允许中文字符但防止路径穿越攻击
+    
+    章节名称可能包含：
+    - 字母、数字、下划线、连字符
+    - 中文字符
+    - 空格
+    
+    但禁止：
+    - 路径穿越模式 (.., /, \)
+    - NULL 字节
+    
+    Args:
+        chapter_name: 章节名称（通常是文件名，不含扩展名）
+    
+    Returns:
+        验证后的章节名称
+    
+    Raises:
+        HTTPException: 如果章节名称包含非法字符
+    """
+    if not chapter_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="章节名称不能为空"
+        )
+    
+    # 检查路径穿越模式
+    dangerous_patterns = [
+        "..",           # 路径穿越
+        "/",            # 路径分隔符
+        "\\",           # Windows 路径分隔符
+        "\x00",         # NULL 字节
+    ]
+    
+    for pattern in dangerous_patterns:
+        if pattern in chapter_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="无效的章节名称：包含非法字符"
+            )
+    
+    # 允许：字母、数字、下划线、连字符、中文、空格
+    # 一-鿿 是基本中文字符范围
+    if not re.match(r'^[\w\s一-鿿\-]+$', chapter_name):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="无效的章节名称：包含非法字符"
+        )
+    
+    return chapter_name

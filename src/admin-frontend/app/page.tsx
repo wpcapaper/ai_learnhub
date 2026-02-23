@@ -31,7 +31,7 @@ export default function CoursesPage() {
   const [quizResult, setQuizResult] = useState<QuizGenerateResult | null>(null);
   const [convertResult, setConvertResult] = useState<ConvertResult | null>(null);
   // 词云弹窗状态
-  const [wordcloudModal, setWordcloudModal] = useState<{ courseId: string; courseName: string } | null>(null);
+  const [wordcloudModal, setWordcloudModal] = useState<{ courseCode: string; courseName: string } | null>(null);
 
   useEffect(() => {
     loadAllData();
@@ -424,7 +424,7 @@ export default function CoursesPage() {
                   onGenerateQuiz={handleGenerateQuiz}
                   onImport={handleImportSingle}
                   actionLoading={actionLoading}
-                  onManageWordcloud={(id, name) => setWordcloudModal({ courseId: id, courseName: name })}
+                  onManageWordcloud={(id, name) => setWordcloudModal({ courseCode: id, courseName: name })}
                 />
               ))}
             </div>
@@ -457,7 +457,7 @@ export default function CoursesPage() {
     {/* 词云管理弹窗 */}
     {wordcloudModal && (
       <WordcloudManager
-        courseId={wordcloudModal.courseId}
+        courseCode={wordcloudModal.courseCode}
         courseName={wordcloudModal.courseName}
         onClose={() => setWordcloudModal(null)}
       />
@@ -686,7 +686,7 @@ function CourseCard({ course, onGenerateQuiz, onImport, onManageWordcloud, actio
           {actionLoading === `quiz-${course.id}` ? '生成中...' : '生成题目'}
         </button>
         <button 
-          onClick={() => onManageWordcloud(course.id, course.title)}
+          onClick={() => onManageWordcloud(course.code, course.title)}
           className="btn btn-ghost flex-1 text-sm text-[#a78bfa]"
         >
           词云

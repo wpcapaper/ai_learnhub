@@ -10,6 +10,7 @@ import AIAssistant from '@/components/AIAssistant';
 import ThemeSelector from '@/components/ThemeSelector';
 import ContentStats from '@/components/ContentStats';
 import OutlineNav from '@/components/OutlineNav';
+import ChapterWordcloudModal from '@/components/ChapterWordcloudModal';
 
 function LearningPageContent() {
   const searchParams = useSearchParams();
@@ -23,6 +24,7 @@ function LearningPageContent() {
   const [currentChapter, setCurrentChapter] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showChapterWordcloud, setShowChapterWordcloud] = useState(false);
   
   // 阅读进度（只在章节切换时更新 state，滚动时用 ref）
   const [readingProgress, setReadingProgress] = useState(0);
@@ -301,6 +303,16 @@ function LearningPageContent() {
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center justify-between">
                     <h1 className="text-lg font-bold truncate" style={{ color: 'var(--foreground-title)' }}>{currentChapter?.title}</h1>
+                    <button
+                      onClick={() => setShowChapterWordcloud(true)}
+                      className="flex items-center gap-1 px-2 py-1 text-xs transition-colors rounded flex-shrink-0"
+                      style={{ color: 'rgb(167 139 250)', background: 'rgba(139, 92, 246, 0.1)' }}
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                      </svg>
+                      词云
+                    </button>
                     {currentChapter?.user_progress && (
                       <div className="flex items-center gap-3 flex-shrink-0">
                         <div className="h-1.5 w-24 rounded-full overflow-hidden" style={{ background: 'var(--background-tertiary)' }}>
@@ -412,6 +424,15 @@ function LearningPageContent() {
           </Panel>
         </Group>
       </div>
+      
+      {showChapterWordcloud && currentChapter && (
+        <ChapterWordcloudModal
+          courseId={courseId!}
+          chapterId={currentChapter.id}
+          chapterTitle={currentChapter.title}
+          onClose={() => setShowChapterWordcloud(false)}
+        />
+      )}
     </div>
   );
 }

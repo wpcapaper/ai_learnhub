@@ -518,17 +518,48 @@ class WordcloudService:
         """
         列出课程下所有章节的词云状态
         
+        从 course.json 获取章节信息（包含 sort_order），
+        确保返回的数据与课程配置一致。
+        
         Args:
             course_path: 课程目录路径
             
         Returns:
-            章节词云状态列表
+            章节词云状态列表，按 sort_order 排序
         """
+        import json
         chapters = []
         
-        # 遍历所有 markdown 文件
+        # 从 course.json 读取章节信息
+        course_json_path = course_path / "course.json"
+        if course_json_path.exists():
+            try:
+                with open(course_json_path, 'r', encoding='utf-8') as f:
+                    course_json = json.load(f)
+                
+                for ch in course_json.get("chapters", []):
+                    file_path = ch.get("file", "")
+                    chapter_name = Path(file_path).stem if file_path else ""
+                    sort_order = ch.get("sort_order", 0)
+                    
+                    has_wordcloud = self.has_chapter_wordcloud(course_path, chapter_name) if chapter_name else False
+                    
+                    chapters.append({
+                        "name": chapter_name,
+                        "title": ch.get("title", chapter_name),
+                        "path": file_path,
+                        "sort_order": sort_order,
+                        "has_wordcloud": has_wordcloud
+                    })
+                
+                # 按 sort_order 排序
+                chapters.sort(key=lambda x: x.get("sort_order", 0))
+                return chapters
+            except (json.JSONDecodeError, IOError):
+                pass
+        
+        # 回退：遍历 markdown 文件（兼容没有 course.json 的情况）
         for md_file in course_path.glob("**/*.md"):
-            # 跳过 assets 目录
             if "assets" in str(md_file).lower():
                 continue
             
@@ -537,7 +568,9 @@ class WordcloudService:
             
             chapters.append({
                 "name": chapter_name,
+                "title": chapter_name,
                 "path": str(md_file.relative_to(course_path)),
+                "sort_order": 999,  # 未知顺序放最后
                 "has_wordcloud": has_wordcloud
             })
         

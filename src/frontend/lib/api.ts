@@ -394,17 +394,21 @@ class ApiClient {
     return this.fetchJson<LearningProgressSummary>(`/api/learning/${courseId}/progress?user_id=${userId}`);
   }
 
-  // 词云 API
+  // 词云 API - 使用 C端 API 路径（用 UUID）
   async getCourseWordcloudStatus(courseId: string): Promise<WordcloudStatus> {
-    return this.fetchJson<WordcloudStatus>(`/api/admin/courses/${courseId}/wordcloud/status`);
+    return this.fetchJson<WordcloudStatus>(`/api/courses/${courseId}/wordcloud/status`);
   }
 
   async getCourseWordcloud(courseId: string): Promise<WordcloudData> {
-    return this.fetchJson<WordcloudData>(`/api/admin/courses/${courseId}/wordcloud`);
+    return this.fetchJson<WordcloudData>(`/api/courses/${courseId}/wordcloud`);
   }
 
-  async getChapterWordcloud(courseId: string, chapterName: string): Promise<WordcloudData> {
-    return this.fetchJson<WordcloudData>(`/api/admin/courses/${courseId}/chapters/${chapterName}/wordcloud`);
+  async getChapterWordcloudStatus(courseId: string, chapterId: string): Promise<WordcloudStatus> {
+    return this.fetchJson<WordcloudStatus>(`/api/courses/${courseId}/chapters/${chapterId}/wordcloud/status`);
+  }
+
+  async getChapterWordcloud(courseId: string, chapterId: string): Promise<WordcloudData> {
+    return this.fetchJson<WordcloudData>(`/api/courses/${courseId}/chapters/${chapterId}/wordcloud`);
   }
 
   // AI 对话 API（流式响应）

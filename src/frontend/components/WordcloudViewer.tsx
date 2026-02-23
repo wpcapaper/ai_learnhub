@@ -19,7 +19,7 @@ const ReactWordcloud = dynamic(
 interface WordcloudViewerProps {
   courseId: string;
   mode?: 'course' | 'chapter';
-  chapterName?: string;
+  chapterId?: string;  // 章节 UUID（用于 chapter 模式）
   className?: string;
   maxWords?: number;
 }
@@ -27,7 +27,7 @@ interface WordcloudViewerProps {
 export default function WordcloudViewer({
   courseId,
   mode = 'course',
-  chapterName,
+  chapterId,
   className = '',
   maxWords = 80,
 }: WordcloudViewerProps) {
@@ -38,29 +38,35 @@ export default function WordcloudViewer({
 
   useEffect(() => {
     loadWordcloud();
-  }, [courseId, mode, chapterName]);
+  }, [courseId, mode, chapterId]);
 
   const loadWordcloud = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const statusData = await apiClient.getCourseWordcloudStatus(courseId);
-      setStatus(statusData);
-
-      if (!statusData.has_wordcloud) {
-        setWordcloud(null);
-        setLoading(false);
-        return;
-      }
-
+      let statusData: WordcloudStatus;
       let data: WordcloudData | null;
-      if (mode === 'chapter' && chapterName) {
-        data = await apiClient.getChapterWordcloud(courseId, chapterName);
+
+      if (mode === 'chapter' && chapterId) {
+        // 章节词云：使用章节 UUID
+        statusData = await apiClient.getChapterWordcloudStatus(courseId, chapterId);
+        if (statusData.has_wordcloud) {
+          data = await apiClient.getChapterWordcloud(courseId, chapterId);
+        } else {
+          data = null;
+        }
       } else {
-        data = await apiClient.getCourseWordcloud(courseId);
+        // 课程词云
+        statusData = await apiClient.getCourseWordcloudStatus(courseId);
+        if (statusData.has_wordcloud) {
+          data = await apiClient.getCourseWordcloud(courseId);
+        } else {
+          data = null;
+        }
       }
 
+      setStatus(statusData);
       setWordcloud(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载词云失败');

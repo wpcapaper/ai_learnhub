@@ -15,13 +15,13 @@ const ReactWordcloud = dynamic(
 );
 
 interface WordcloudManagerProps {
-  courseId: string;
+  courseCode: string;
   courseName: string;
   onClose: () => void;
 }
 
 export default function WordcloudManager({ 
-  courseId, 
+  courseCode, 
   courseName, 
   onClose 
 }: WordcloudManagerProps) {
@@ -30,17 +30,18 @@ export default function WordcloudManager({
   const [courseStatus, setCourseStatus] = useState<WordcloudStatus | null>(null);
   const [chapters, setChapters] = useState<ChapterWordcloudStatus[]>([]);
   const [activeTab, setActiveTab] = useState<'course' | 'chapters'>('course');
-  const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
+  const [selectedChapter, setSelectedChapter] = useState<number | null>(null);
+  const [selectedChapterTitle, setSelectedChapterTitle] = useState<string>("");
   const [chapterWordcloud, setChapterWordcloud] = useState<WordcloudData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadWordcloudStatus();
     loadChaptersStatus();
-  }, [courseId]);
+  }, [courseCode]);
 
   const loadWordcloudStatus = async () => {
-    const response = await adminApi.getCourseWordcloudStatus(courseId);
+    const response = await adminApi.getCourseWordcloudStatus(courseCode);
     if (response.success && response.data) {
       setCourseStatus(response.data);
       if (response.data.has_wordcloud) {
@@ -50,14 +51,14 @@ export default function WordcloudManager({
   };
 
   const loadCourseWordcloud = async () => {
-    const response = await adminApi.getCourseWordcloud(courseId);
+    const response = await adminApi.getCourseWordcloud(courseCode);
     if (response.success && response.data) {
       setCourseWordcloud(response.data);
     }
   };
 
   const loadChaptersStatus = async () => {
-    const response = await adminApi.listChapterWordcloudStatus(courseId);
+    const response = await adminApi.listChapterWordcloudStatus(courseCode);
     if (response.success && response.data) {
       setChapters(response.data);
     }
@@ -67,7 +68,7 @@ export default function WordcloudManager({
     setLoading(true);
     setError(null);
     
-    const response = await adminApi.generateCourseWordcloud(courseId);
+    const response = await adminApi.generateCourseWordcloud(courseCode);
     
     if (response.success && response.data) {
       setCourseWordcloud(response.data);
@@ -87,7 +88,7 @@ export default function WordcloudManager({
     setLoading(true);
     setError(null);
     
-    const response = await adminApi.batchGenerateWordclouds(courseId);
+    const response = await adminApi.batchGenerateWordclouds(courseCode);
     
     if (response.success && response.data) {
       if (response.data.course_wordcloud) {
@@ -110,7 +111,7 @@ export default function WordcloudManager({
     if (!confirm('确定要删除课程词云吗？')) return;
     
     setLoading(true);
-    const response = await adminApi.deleteCourseWordcloud(courseId);
+    const response = await adminApi.deleteCourseWordcloud(courseCode);
     
     if (response.success) {
       setCourseWordcloud(null);
@@ -122,11 +123,11 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  const handleGenerateChapterWordcloud = async (chapterName: string) => {
+  const handleGenerateChapterWordcloud = async (chapterOrder: number) => {
     setLoading(true);
     setError(null);
     
-    const response = await adminApi.generateChapterWordcloud(courseId, chapterName);
+    const response = await adminApi.generateChapterWordcloud(courseCode, chapterOrder);
     
     if (response.success && response.data) {
       setChapterWordcloud(response.data);
@@ -138,11 +139,12 @@ export default function WordcloudManager({
     setLoading(false);
   };
 
-  const handleViewChapterWordcloud = async (chapterName: string) => {
+  const handleViewChapterWordcloud = async (chapterOrder: number, chapterTitle: string) => {
     setLoading(true);
-    setSelectedChapter(chapterName);
+    setSelectedChapter(chapterOrder);
+    setSelectedChapterTitle(chapterTitle);
     
-    const response = await adminApi.getChapterWordcloud(courseId, chapterName);
+    const response = await adminApi.getChapterWordcloud(courseCode, chapterOrder);
     
     if (response.success && response.data) {
       setChapterWordcloud(response.data);
@@ -308,14 +310,14 @@ export default function WordcloudManager({
                     <div className="flex gap-2">
                       {chapter.has_wordcloud && (
                         <button
-                          onClick={() => handleViewChapterWordcloud(chapter.name)}
+                          onClick={() => handleViewChapterWordcloud(chapter.sort_order, chapter.title)}
                           className="px-2 py-1 text-xs rounded bg-[rgba(255,255,255,0.05)] text-[#a1a1aa] hover:bg-[rgba(255,255,255,0.1)] transition-colors"
                         >
                           查看
                         </button>
                       )}
                       <button
-                        onClick={() => handleGenerateChapterWordcloud(chapter.name)}
+                        onClick={() => handleGenerateChapterWordcloud(chapter.sort_order)}
                         disabled={loading}
                         className="px-2 py-1 text-xs rounded bg-[rgba(139,92,246,0.1)] text-[#a78bfa] hover:bg-[rgba(139,92,246,0.2)] transition-colors"
                       >
@@ -328,7 +330,7 @@ export default function WordcloudManager({
 
               {selectedChapter && chapterWordcloud && (
                 <div className="mt-4">
-                  <h3 className="text-sm font-medium text-[#fafafa] mb-2">{selectedChapter}</h3>
+                  <h3 className="text-sm font-medium text-[#fafafa] mb-2">{selectedChapterTitle}</h3>
                   <WordcloudPreview data={chapterWordcloud} height={300} />
                 </div>
               )}

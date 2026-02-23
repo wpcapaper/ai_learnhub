@@ -26,6 +26,34 @@ All notable changes to this project will be documented in this file.
  `FILE_LIFE_CIRCLE.md`
 
 ## [Unreleased]
+### Changed
+- 词云 API 重构：管理端使用 `course_code` 作为路径参数
+- 章节词云 API：从 `chapter_name` 改为 `chapter_order`（章节序号）
+- 课程转换排序：`source_files` 按文件名字典序排列
+- Pydantic 模型：移除 `WordcloudStatusResponse` 等无用的必填字段
+
+### Added
+- C端章节词云：学习页面新增词云按钮和弹窗组件
+- `validate_chapter_name()` 函数：支持中文字符的章节名称验证
+- C端 API：新增 `by-id` 和 `by-code` 两套词云查询接口
+
+### Fixed
+- 管理端词云按钮：`course.id` → `course.code`
+- 章节词云查询：解决中文文件名 URL 编码导致的 400 错误
+
+### Files
+- `src/backend/app/api/admin.py`
+- `src/backend/app/api/courses.py`
+- `src/backend/app/services/wordcloud_service.py`
+- `src/backend/app/core/admin_security.py`
+- `src/backend/app/course_pipeline/pipeline.py`
+- `src/admin-frontend/lib/api.ts`
+- `src/admin-frontend/app/page.tsx`
+- `src/admin-frontend/components/WordcloudManager.tsx`
+- `src/frontend/lib/api.ts`
+- `src/frontend/app/learning/page.tsx`
+- `src/frontend/components/WordcloudViewer.tsx`
+- `src/frontend/components/ChapterWordcloudModal.tsx` (新增)
 
 ### Added
 - 章节详情页：字数统计、预计用时、左侧大纲导航、返回顶部按钮

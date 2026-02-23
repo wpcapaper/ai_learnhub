@@ -233,6 +233,9 @@ class CoursePipeline:
                         continue
                     source_files.append(SourceFile.from_path(str(file_path)))
             
+            # 按文件名字典序排序，确保章节顺序一致
+            source_files.sort(key=lambda f: f.path)
+            
             if source_files:
                 # 提取课程名称（从目录名）
                 course_name = self._extract_course_name(course_dir)
