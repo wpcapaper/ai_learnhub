@@ -173,7 +173,7 @@ scripts/data/output/*
 # raw_courses（原始课程）
 # 保留目录，忽略内容（除非显式添加）
 /raw_courses/*
-!/raw_courses
+!/raw_courses/python_basics
 
 
 # OS
