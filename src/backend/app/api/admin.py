@@ -75,12 +75,14 @@ class TaskResponse(BaseModel):
 
 
 class RawCourseInfo(BaseModel):
-    """原始课程信息（raw_courses 目录）"""
+    """课程信息（原始/已转换）"""
     id: str
     name: str
     path: str
     file_count: int
     has_content: bool
+    version: Optional[int] = None  # 版本号（仅 markdown_courses）
+    course_name: Optional[str] = None  # 课程名（去掉版本后缀）
 
 
 class DatabaseCourseInfo(BaseModel):
@@ -575,6 +577,79 @@ async def list_raw_courses():
         ))
     
     return raw_courses
+
+
+@router.get("/markdown-courses", response_model=List[RawCourseInfo])
+async def list_markdown_courses():
+    """
+    列出已转换的课程目录（markdown_courses）
+    
+    扫描 markdown_courses 目录，返回所有已转换待入库的课程
+    目录格式：{course_name}_v{version}
+    """
+    markdown_courses = []
+    markdown_dir = get_markdown_courses_dir()
+    
+    if not markdown_dir.exists():
+        return markdown_courses
+    
+    for course_dir in markdown_dir.iterdir():
+        if not course_dir.is_dir():
+            continue
+        if course_dir.name.startswith('.'):
+            continue
+        
+        file_count = 0
+        md_count = 0
+        
+        for f in course_dir.rglob("*"):
+            if f.is_file() and not f.name.startswith('.'):
+                file_count += 1
+                if f.suffix == '.md':
+                    md_count += 1
+        
+        # 解析版本号
+        version = 1
+        import re
+        version_match = re.search(r'_v(\d+)$', course_dir.name)
+        if version_match:
+            version = int(version_match.group(1))
+        
+        # 提取课程名（去掉版本后缀）
+        course_name = re.sub(r'_v\d+$', '', course_dir.name)
+        
+        markdown_courses.append(RawCourseInfo(
+            id=course_dir.name,
+            name=course_dir.name,
+            path=str(course_dir.relative_to(markdown_dir.parent)),
+            file_count=file_count,
+            has_content=md_count > 0,
+            version=version,
+            course_name=course_name
+        ))
+    
+    # 按课程名和版本排序
+    markdown_courses.sort(key=lambda x: (x.course_name or '', -(x.version or 0)))
+    
+    return markdown_courses
+
+
+@router.get("/markdown-courses/{course_id}/course.json")
+async def get_course_json(course_id: str):
+    """
+    获取已转换课程的 course.json
+    """
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    course_json = load_course_json(course_dir)
+    if not course_json:
+        raise HTTPException(status_code=404, detail="course.json 不存在")
+    
+    return course_json
 
 
 # ==================== 数据库课程 API ====================

@@ -35,6 +35,7 @@ services:
       - ./src/backend/app:/app/app
       - ./courses:/app/courses
       - ./raw_courses:/app/raw_courses
+      - ./markdown_courses:/app/markdown_courses
     depends_on:
       - redis
       - langfuse
