@@ -7,7 +7,7 @@
 - 此路由已通过 AdminIPWhitelistMiddleware 进行 IP 白名单认证
 - 所有路径参数已进行路径穿越验证
 
-所有RAG相关数据独立存储，不依赖业务数据库(app.db)
+所有课程数据存储在 markdown_courses/ 目录，不依赖 courses/ 目录
 """
 
 from fastapi import APIRouter, HTTPException, BackgroundTasks
@@ -43,10 +43,11 @@ from app.core.admin_security import validate_course_id
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
+
 # ==================== 请求/响应模型 ====================
 
 class CourseInfo(BaseModel):
-    """课程信息"""
+    course_info: str
     id: str
     code: str
     title: str
@@ -57,36 +58,34 @@ class CourseInfo(BaseModel):
 
 
 class ConvertResponse(BaseModel):
-    """转换响应"""
+    convert_response: str
     message: str
     results: List[Dict[str, Any]]
 
 
 class OptimizationRequest(BaseModel):
-    """优化请求"""
+    optimization_request: str
     course_id: str
     strategies: Optional[List[Dict[str, Any]]] = None
 
 
 class TaskResponse(BaseModel):
-    """任务响应"""
+    task_response: str
     task_id: str
     status: str
 
 
 class RawCourseInfo(BaseModel):
-    """课程信息（原始/已转换）"""
+    raw_course_info: str
     id: str
     name: str
     path: str
     file_count: int
     has_content: bool
-    version: Optional[int] = None  # 版本号（仅 markdown_courses）
-    course_name: Optional[str] = None  # 课程名（去掉版本后缀）
 
 
 class DatabaseCourseInfo(BaseModel):
-    """数据库中的课程信息"""
+    database_course_info: str
     id: str
     code: str
     title: str
@@ -98,7 +97,7 @@ class DatabaseCourseInfo(BaseModel):
 
 
 class DatabaseChapterInfo(BaseModel):
-    """数据库中的章节信息"""
+    database_chapter_info: str
     id: str
     course_id: str
     title: str
@@ -106,7 +105,7 @@ class DatabaseChapterInfo(BaseModel):
 
 
 class ImportResult(BaseModel):
-    """导入结果"""
+    import_result: str
     success: bool
     message: str
     imported_courses: int = 0
@@ -116,37 +115,21 @@ class ImportResult(BaseModel):
 
 # ==================== 辅助函数 ====================
 
-def get_courses_dir() -> Path:
-    """获取课程目录路径"""
-    # 优先使用 Docker 挂载路径
-    docker_path = Path("/app/courses")
-    if docker_path.exists():
-        return docker_path
-    # 本地开发：相对于项目根目录
-    return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "courses"
-
-
 def get_raw_courses_dir() -> Path:
-    """获取原始课程目录路径"""
-    # 优先使用 Docker 挂载路径
     docker_path = Path("/app/raw_courses")
     if docker_path.exists():
         return docker_path
-    # 本地开发：相对于项目根目录
     return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "raw_courses"
 
 
 def get_markdown_courses_dir() -> Path:
-    """获取 markdown_courses 目录路径"""
-    # 优先使用 Docker 挂载路径
     docker_path = Path("/app/markdown_courses")
     if docker_path.exists():
         return docker_path
-    # 本地开发：相对于项目根目录
     return Path(os.path.dirname(__file__)).parent.parent.parent.parent / "markdown_courses"
 
+
 def load_course_json(course_dir: Path) -> Optional[Dict[str, Any]]:
-    """加载课程的 course.json"""
     course_json = course_dir / "course.json"
     if course_json.exists():
         with open(course_json, 'r', encoding='utf-8') as f:
@@ -155,122 +138,21 @@ def load_course_json(course_dir: Path) -> Optional[Dict[str, Any]]:
 
 
 def load_quality_report_from_course(course_dir: Path) -> Optional[QualityReport]:
-    """从课程目录加载质量报告"""
     report_path = course_dir / "quality_report.json"
     return load_quality_report(report_path)
 
 
-# ==================== 课程管理 API ====================
+# ==================== 课程转换 API ====================
 
-@router.get("/courses", response_model=List[CourseInfo])
-async def list_courses():
-    """
-    列出所有课程
-    
-    扫描 courses 目录，返回所有课程信息
-    """
-    courses = []
-    courses_dir = get_courses_dir()
-    
-    if not courses_dir.exists():
-        return courses
-    
-    for course_dir in courses_dir.iterdir():
-        if not course_dir.is_dir():
-            continue
-        
-        course_json = load_course_json(course_dir)
-        if not course_json:
-            continue
-        
-        # 加载质量报告获取评分
-        quality_report = load_quality_report_from_course(course_dir)
-        quality_score = quality_report.overall_score if quality_report else None
-        
-        courses.append(CourseInfo(
-            id=course_dir.name,
-            code=course_json.get("code", course_dir.name),
-            title=course_json.get("title", course_dir.name),
-            description=course_json.get("description", ""),
-            chapters=course_json.get("chapters", []),
-            quality_score=quality_score
-        ))
-    
-    return courses
-
-
-@router.get("/courses/{course_id}", response_model=CourseInfo)
-async def get_course(course_id: str):
-    """获取单个课程详情"""
-    course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
-    
-    if not course_dir.exists():
-        raise HTTPException(status_code=404, detail="课程不存在")
-    
-    course_json = load_course_json(course_dir)
-    if not course_json:
-        raise HTTPException(status_code=404, detail="课程配置文件不存在")
-    
-    quality_report = load_quality_report_from_course(course_dir)
-    quality_score = quality_report.overall_score if quality_report else None
-    
-    return CourseInfo(
-        id=course_id,
-        code=course_json.get("code", course_id),
-        title=course_json.get("title", course_id),
-        description=course_json.get("description", ""),
-        chapters=course_json.get("chapters", []),
-        quality_score=quality_score
-    )
-
-
-@router.post("/courses/convert", response_model=ConvertResponse)
-async def convert_courses(background_tasks: BackgroundTasks):
-    """
-    触发课程转换
-    
-    将 raw_courses 目录下的原始课程转换为标准格式
-    """
-    raw_dir = str(get_raw_courses_dir())
-    markdown_dir = str(get_markdown_courses_dir())
-    
-    pipeline = CoursePipeline(
-        raw_courses_dir=raw_dir,
-        markdown_courses_dir=markdown_dir
-    )
-    
-    # 执行转换
-    results = pipeline.convert_all()
-    
-    # 转换结果
-    result_list = []
-    for result in results:
-        result_data = {
-            "success": result.success,
-            "course_id": result.course.course_id if result.course else None,
-            "error": result.error_message if not result.success else None,
-            "chapters": len(result.course.chapters) if result.course else 0,
-            "quality_score": result.course.quality_report.overall_score if result.course and result.course.quality_report else None,
-        }
-        result_list.append(result_data)
-    
-    return ConvertResponse(
-        message=f"转换完成，成功 {sum(1 for r in results if r.success)}/{len(results)}",
-        results=result_list
-    )
-
-
-@router.post("/courses/convert/{course_id}", response_model=ConvertResponse)
-async def convert_single_course(course_id: str):
-    course_id = validate_course_id(course_id)
+@router.post("/courses/convert/{course_name}", response_model=ConvertResponse)
+async def convert_single_course(course_name: str):
+    course_name = validate_course_id(course_name)
     raw_dir = get_raw_courses_dir()
     markdown_dir = get_markdown_courses_dir()
     
-    source_dir = raw_dir / course_id
+    source_dir = raw_dir / course_name
     if not source_dir.exists():
-        raise HTTPException(status_code=404, detail=f"原始课程不存在: {course_id}")
+        raise HTTPException(status_code=404, detail=f"原始课程不存在: {course_name}")
     
     source_files = []
     for ext in ['*.md', '*.ipynb']:
@@ -280,7 +162,7 @@ async def convert_single_course(course_id: str):
             source_files.append(SourceFile.from_path(str(file_path), str(source_dir)))
     
     if not source_files:
-        raise HTTPException(status_code=400, detail=f"课程目录中没有可转换的文件: {course_id}")
+        raise HTTPException(status_code=400, detail=f"课程目录中没有可转换的文件: {course_name}")
     
     pipeline = CoursePipeline(
         raw_courses_dir=str(raw_dir),
@@ -288,15 +170,16 @@ async def convert_single_course(course_id: str):
     )
     
     result = pipeline.convert_course(RawCourse(
-        course_id=course_id,
-        name=course_id,
+        course_id=course_name,
+        name=course_name,
         source_dir=str(source_dir),
         source_files=source_files
     ))
     
     result_data = {
         "success": result.success,
-        "course_id": result.course.course_id if result.course else course_id,
+        "course_id": result.course.course_id if result.course else course_name,
+        "code": result.course.code if result.course else None,
         "error": result.error_message if not result.success else None,
         "chapters": len(result.course.chapters) if result.course else 0,
         "quality_score": result.course.quality_report.overall_score if result.course and result.course.quality_report else None,
@@ -308,14 +191,47 @@ async def convert_single_course(course_id: str):
     )
 
 
+@router.post("/courses/reorder/{code}", response_model=ConvertResponse)
+async def reorder_course_chapters(code: str):
+    """
+    对已转换课程进行章节重排
+    
+    TODO: 实现章节重排逻辑
+    1. 读取现有 markdown_courses/{code}/course.json
+    2. 使用 ChapterSorter 重新排序
+    3. 检测现有版本，生成新版本号 N
+    4. 创建新目录 {code}_v{N}
+    5. 复制内容，更新 course.json（添加 origin, version 字段）
+    """
+    code = validate_course_id(code)
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / code
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail=f"课程不存在: {code}")
+    
+    pipeline = CoursePipeline(
+        raw_courses_dir=str(get_raw_courses_dir()),
+        markdown_courses_dir=str(markdown_dir)
+    )
+    
+    try:
+        result = pipeline.reorder_course(code)
+        return ConvertResponse(
+            message="章节重排成功",
+            results=[{"success": True, "code": code}]
+        )
+    except NotImplementedError:
+        raise HTTPException(status_code=501, detail="章节重排功能待实现")
+
+
 # ==================== 质量评估 API ====================
 
 @router.get("/quality/{course_id}")
 async def get_quality_report(course_id: str):
-    """获取课程质量评估报告"""
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -359,24 +275,17 @@ async def get_quality_report(course_id: str):
 
 @router.post("/rag/optimize")
 async def run_optimization(request: OptimizationRequest):
-    """
-    运行RAG分块策略优化
-    
-    在沙箱环境中测试不同分块策略，返回推荐配置
-    """
     course_id = validate_course_id(request.course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
     
-    # 加载课程内容
     course_json = load_course_json(course_dir)
     if not course_json:
         raise HTTPException(status_code=404, detail="课程配置不存在")
     
-    # 读取所有章节内容
     content_parts = []
     for chapter in course_json.get("chapters", []):
         chapter_file = course_dir / chapter.get("file", "")
@@ -389,18 +298,14 @@ async def run_optimization(request: OptimizationRequest):
     
     full_content = "\n\n".join(content_parts)
     
-    # 创建优化器并运行测试
     optimizer = RAGChunkOptimizer()
     
-    # 准备测试查询（基于课程内容生成简单测试）
     test_queries = [
         {"query": course_json.get("title", ""), "expected_keywords": [course_json.get("title", "")]},
     ]
     
-    # 从课程描述中提取关键词
     description = course_json.get("description", "")
     if description:
-        # 简单提取关键词
         import re
         keywords = re.findall(r'[\u4e00-\u9fff]{2,4}', description)
         if keywords:
@@ -409,14 +314,12 @@ async def run_optimization(request: OptimizationRequest):
                 "expected_keywords": keywords[:5]
             })
     
-    # 运行优化测试
     report = optimizer.test_chunk_strategies(
         content=full_content,
         test_queries=test_queries,
         strategies=request.strategies
     )
     
-    # 保存报告
     report_path = course_dir / "rag_optimization_report.json"
     optimizer.save_optimization_report(report, report_path)
     
@@ -425,10 +328,9 @@ async def run_optimization(request: OptimizationRequest):
 
 @router.get("/rag/optimize/{course_id}")
 async def get_optimization_report(course_id: str):
-    """获取已保存的优化报告"""
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    report_path = courses_dir / course_id / "rag_optimization_report.json"
+    markdown_dir = get_markdown_courses_dir()
+    report_path = markdown_dir / course_id / "rag_optimization_report.json"
     
     if not report_path.exists():
         raise HTTPException(status_code=404, detail="优化报告不存在，请先运行优化")
@@ -441,11 +343,6 @@ async def get_optimization_report(course_id: str):
 
 @router.get("/rag/config")
 async def get_rag_config():
-    """
-    获取RAG配置
-    
-    返回当前的RAG配置信息
-    """
     config_path = Path(os.path.dirname(__file__)).parent / "config" / "rag_config.yaml"
     
     if not config_path.exists():
@@ -460,11 +357,6 @@ async def get_rag_config():
 
 @router.put("/rag/config")
 async def update_rag_config(config: Dict[str, Any]):
-    """
-    更新RAG配置
-    
-    注意：此操作会影响全局RAG行为
-    """
     config_path = Path(os.path.dirname(__file__)).parent / "config" / "rag_config.yaml"
     
     import yaml
@@ -478,15 +370,9 @@ async def update_rag_config(config: Dict[str, Any]):
 
 @router.post("/rag/optimize/stream")
 async def run_optimization_stream(request: OptimizationRequest):
-    """
-    运行 RAG 优化（SSE 流式输出）
-    
-    使用 Agent 框架执行优化，实时输出执行过程。
-    返回 SSE 格式的流式数据。
-    """
     course_id = validate_course_id(request.course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -532,7 +418,6 @@ async def run_optimization_stream(request: OptimizationRequest):
 
 @router.get("/agent/skills")
 async def list_agent_skills():
-    """列出 Agent 可用的 Skills"""
     agent = RAGOptimizerAgent()
     return {"skills": agent.skills}
 
@@ -541,14 +426,8 @@ async def list_agent_skills():
 
 @router.get("/raw-courses", response_model=List[RawCourseInfo])
 async def list_raw_courses():
-    """
-    列出原始课程目录（raw_courses）
-    
-    扫描 raw_courses 目录，返回所有待转换的课程
-    """
     raw_courses = []
     raw_dir = get_raw_courses_dir()
-
     
     if not raw_dir.exists():
         return raw_courses
@@ -581,16 +460,6 @@ async def list_raw_courses():
 
 @router.get("/markdown-courses", response_model=List[CourseInfo])
 async def list_markdown_courses():
-    """
-    列出已转换的课程目录（markdown_courses）
-    
-    扫描 markdown_courses 目录，返回所有已转换待入库的课程
-    目录格式：{course_name}_v{version}
-    
-    每个课程必须有 course.json 配置文件
-    """
-    import re
-    
     markdown_courses = []
     markdown_dir = get_markdown_courses_dir()
     
@@ -603,12 +472,10 @@ async def list_markdown_courses():
         if course_dir.name.startswith('.'):
             continue
         
-        # 读取 course.json（必须有）
         course_json = load_course_json(course_dir)
         if not course_json:
-            continue  # 跳过没有 course.json 的目录
+            continue
         
-        # 加载质量报告
         quality_report = load_quality_report_from_course(course_dir)
         quality_score = quality_report.overall_score if quality_report else None
         
@@ -619,20 +486,43 @@ async def list_markdown_courses():
             description=course_json.get("description", ""),
             chapters=course_json.get("chapters", []),
             quality_score=quality_score,
-            created_at=None  # markdown 课程没有入库时间
+            created_at=None
         ))
     
-    # 按标题排序
     markdown_courses.sort(key=lambda x: x.title)
     
     return markdown_courses
 
 
+@router.get("/markdown-courses/{course_id}", response_model=CourseInfo)
+async def get_markdown_course(course_id: str):
+    course_id = validate_course_id(course_id)
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail="课程不存在")
+    
+    course_json = load_course_json(course_dir)
+    if not course_json:
+        raise HTTPException(status_code=404, detail="course.json 不存在")
+    
+    quality_report = load_quality_report_from_course(course_dir)
+    quality_score = quality_report.overall_score if quality_report else None
+    
+    return CourseInfo(
+        id=course_id,
+        code=course_json.get("code", course_id),
+        title=course_json.get("title", course_id),
+        description=course_json.get("description", ""),
+        chapters=course_json.get("chapters", []),
+        quality_score=quality_score,
+        created_at=None
+    )
+
+
 @router.get("/markdown-courses/{course_id}/course.json")
 async def get_course_json(course_id: str):
-    """
-    获取已转换课程的 course.json
-    """
     markdown_dir = get_markdown_courses_dir()
     course_dir = markdown_dir / course_id
     
@@ -650,11 +540,6 @@ async def get_course_json(course_id: str):
 
 @router.get("/database/courses", response_model=List[DatabaseCourseInfo])
 async def list_database_courses():
-    """
-    列出数据库中的课程
-    
-    查询数据库中已导入的课程
-    """
     db = SessionLocal()
     try:
         courses = db.query(Course).filter(Course.is_deleted == False).all()
@@ -701,125 +586,22 @@ async def list_database_chapters(course_id: str):
         db.close()
 
 
-@router.post("/courses/import", response_model=ImportResult)
-async def import_courses_to_database():
+@router.post("/markdown-courses/{course_id}/import", response_model=ImportResult)
+async def import_markdown_course_to_database(course_id: str):
     """
-    将 courses 目录导入数据库
+    将已转换课程导入到数据库
     
-    读取 courses 目录下的所有课程，导入到数据库
+    Args:
+        course_id: markdown_courses 目录名（如 python_basics 或 python_basics_v1）
+    
+    导入时使用 UUID 作为数据库主键，用 code 查重
     """
-    courses_dir = get_courses_dir()
-    
-    if not courses_dir.exists():
-        raise HTTPException(status_code=404, detail="courses 目录不存在")
-    
-    db = SessionLocal()
-    statistics = {
-        "imported_courses": 0,
-        "imported_chapters": 0,
-        "errors": []
-    }
-    
-    try:
-        for course_dir in courses_dir.iterdir():
-            if not course_dir.is_dir():
-                continue
-            if course_dir.name.startswith('.'):
-                continue
-            
-            try:
-                course_json = load_course_json(course_dir)
-                if not course_json:
-                    statistics["errors"].append(f"{course_dir.name}: 缺少 course.json")
-                    continue
-                
-                course_code = course_json.get("code", course_dir.name)
-                
-                existing = db.query(Course).filter(Course.code == course_code).first()
-                
-                if existing and not existing.is_deleted:
-                    statistics["errors"].append(f"{course_dir.name}: 课程代码已存在 ({course_code})")
-                    continue
-                
-                if existing and existing.is_deleted:
-                    existing.is_deleted = False
-                    existing.title = course_json.get("title", course_dir.name)
-                    existing.description = course_json.get("description", "")
-                    existing.course_type = course_json.get("course_type", "learning")
-                    existing.cover_image = course_json.get("cover_image")
-                    existing.is_active = True
-                    existing.sort_order = course_json.get("sort_order", 0)
-                    db.query(Chapter).filter(Chapter.course_id == existing.id).delete()
-                    course = existing
-                else:
-                    course = Course(
-                        id=str(uuid.uuid4()),
-                        code=course_code,
-                        title=course_json.get("title", course_dir.name),
-                        description=course_json.get("description", ""),
-                        course_type=course_json.get("course_type", "learning"),
-                        cover_image=course_json.get("cover_image"),
-                        default_exam_config=None,
-                        is_active=True,
-                        sort_order=course_json.get("sort_order", 0),
-                        created_at=datetime.utcnow()
-                    )
-                    db.add(course)
-                
-                db.flush()
-                
-                chapters = course_json.get("chapters", [])
-                for chapter_info in chapters:
-                    chapter_file = course_dir / chapter_info.get("file", "")
-                    
-                    if not chapter_file.exists():
-                        statistics["errors"].append(f"{course_dir.name}/{chapter_info.get('file')}: 文件不存在")
-                        continue
-                    
-                    markdown_content = chapter_file.read_text(encoding='utf-8')
-                    
-                    chapter = Chapter(
-                        id=str(uuid.uuid4()),
-                        course_id=course.id,
-                        # code 字段已删除
-                        title=chapter_info.get("title", ""),
-                        content_markdown=markdown_content,
-                        sort_order=chapter_info.get("sort_order", 0)
-                    )
-                    
-                    db.add(chapter)
-                    statistics["imported_chapters"] += 1
-                
-                db.commit()
-                statistics["imported_courses"] += 1
-                
-            except Exception as e:
-                db.rollback()
-                statistics["errors"].append(f"{course_dir.name}: {str(e)}")
-        
-        return ImportResult(
-            success=len(statistics["errors"]) == 0,
-            message=f"导入完成，成功 {statistics['imported_courses']} 个课程，{statistics['imported_chapters']} 个章节",
-            imported_courses=statistics["imported_courses"],
-            imported_chapters=statistics["imported_chapters"],
-            errors=statistics["errors"]
-        )
-        
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
-    finally:
-        db.close()
-
-
-@router.post("/courses/import/{course_id}", response_model=ImportResult)
-async def import_single_course_to_database(course_id: str):
     course_id = validate_course_id(course_id)
     db = SessionLocal()
     
     try:
-        courses_dir = get_courses_dir()
-        course_dir = courses_dir / course_id
+        markdown_dir = get_markdown_courses_dir()
+        course_dir = markdown_dir / course_id
         
         if not course_dir.exists():
             raise HTTPException(status_code=404, detail=f"课程目录不存在: {course_id}")
@@ -830,36 +612,24 @@ async def import_single_course_to_database(course_id: str):
         
         course_code = course_json.get("code", course_id)
         
-        existing = db.query(Course).filter(Course.code == course_code).first()
+        existing = db.query(Course).filter(Course.code == course_code, Course.is_deleted == False).first()
         
-        if existing and not existing.is_deleted:
+        if existing:
             raise HTTPException(status_code=400, detail=f"课程代码已存在: {course_code}")
         
-        if existing and existing.is_deleted:
-            existing.is_deleted = False
-            existing.title = course_json.get("title", course_id)
-            existing.description = course_json.get("description", "")
-            existing.course_type = course_json.get("course_type", "learning")
-            existing.cover_image = course_json.get("cover_image")
-            existing.is_active = True
-            existing.sort_order = course_json.get("sort_order", 0)
-            db.query(Chapter).filter(Chapter.course_id == existing.id).delete()
-            course = existing
-        else:
-            course = Course(
-                id=str(uuid.uuid4()),
-                code=course_code,
-                title=course_json.get("title", course_id),
-                description=course_json.get("description", ""),
-                course_type=course_json.get("course_type", "learning"),
-                cover_image=course_json.get("cover_image"),
-                default_exam_config=None,
-                is_active=True,
-                sort_order=course_json.get("sort_order", 0),
-                created_at=datetime.utcnow()
-            )
-            db.add(course)
-        
+        course = Course(
+            id=str(uuid.uuid4()),
+            code=course_code,
+            title=course_json.get("title", course_id),
+            description=course_json.get("description", ""),
+            course_type=course_json.get("course_type", "learning"),
+            cover_image=course_json.get("cover_image"),
+            default_exam_config=None,
+            is_active=True,
+            sort_order=course_json.get("sort_order", 0),
+            created_at=datetime.utcnow()
+        )
+        db.add(course)
         db.flush()
         
         imported_chapters = 0
@@ -878,7 +648,6 @@ async def import_single_course_to_database(course_id: str):
             chapter = Chapter(
                 id=str(uuid.uuid4()),
                 course_id=course.id,
-                # code 字段已删除
                 title=chapter_info.get("title", ""),
                 content_markdown=markdown_content,
                 sort_order=chapter_info.get("sort_order", 0)
@@ -906,20 +675,13 @@ async def import_single_course_to_database(course_id: str):
         db.close()
 
 
-
 class CourseActivateRequest(BaseModel):
-    """课程启用请求"""
+    course_activate_request: str
     is_active: bool
 
 
 @router.put("/database/courses/{course_id}/activate")
 async def activate_course(course_id: str, request: CourseActivateRequest):
-    """
-    启用/停用课程
-    
-    - is_active=true: 课程在 C 端可见
-    - is_active=false: 课程在 C 端不可见（草稿状态）
-    """
     db = SessionLocal()
     try:
         course = db.query(Course).filter(Course.id == course_id).first()
@@ -937,9 +699,6 @@ async def activate_course(course_id: str, request: CourseActivateRequest):
 
 @router.delete("/database/courses/{course_id}")
 async def delete_course_from_database(course_id: str):
-    """
-    从数据库删除课程（软删除）
-    """
     db = SessionLocal()
     try:
         course = db.query(Course).filter(Course.id == course_id).first()
@@ -954,59 +713,13 @@ async def delete_course_from_database(course_id: str):
         db.close()
 
 
-class QuizGenerateRequest(BaseModel):
-    course_id: str
-    chapter_count: Optional[int] = 5
-    question_types: Optional[List[str]] = ["single_choice", "multiple_choice"]
-    difficulty: Optional[str] = "medium"
-
-
-class QuizGenerateResult(BaseModel):
-    success: bool
-    message: str
-    total_questions: int = 0
-    chapters_processed: int = 0
-
-
-@router.post("/quiz/generate", response_model=QuizGenerateResult)
-async def generate_quiz_for_course(request: QuizGenerateRequest):
-    """
-    基于课程内容生成自测题（预埋功能）
-    
-    从 courses 目录读取课程内容，使用 LLM 生成自测题。
-    此功能为预埋接口，实际生成逻辑待实现。
-    """
-    course_id = validate_course_id(request.course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
-    
-    if not course_dir.exists():
-        raise HTTPException(status_code=404, detail="课程不存在")
-    
-    course_json = load_course_json(course_dir)
-    if not course_json:
-        raise HTTPException(status_code=404, detail="课程配置文件不存在")
-    
-    chapters = course_json.get("chapters", [])
-    
-    return QuizGenerateResult(
-        success=False,
-        message="题目生成功能开发中，敬请期待",
-        total_questions=0,
-        chapters_processed=len(chapters)
-    )
-
-
 # ==================== 词云管理 API ====================
-# 词云功能：生成课程/章节的关键词词云数据
-# 使用 jieba TF-IDF 算法提取关键词，生成 JSON 格式的词频数据
-# 前端使用 react-wordcloud 渲染
 
 from app.services.wordcloud_service import WordcloudService
 
 
 class WordcloudResponse(BaseModel):
-    """词云响应数据"""
+    wordcloud_response: str
     version: str = "1.0"
     generated_at: str = ""
     words: List[Dict[str, float]] = []
@@ -1014,21 +727,21 @@ class WordcloudResponse(BaseModel):
 
 
 class WordcloudStatusResponse(BaseModel):
-    """词云状态响应"""
+    wordcloud_status_response: str
     has_wordcloud: bool
     generated_at: Optional[str] = None
     words_count: int = 0
 
 
 class ChapterWordcloudStatus(BaseModel):
-    """章节词云状态"""
+    chapter_wordcloud_status: str
     name: str
     path: str
     has_wordcloud: bool
 
 
 class BatchGenerateResult(BaseModel):
-    """批量生成结果"""
+    batch_generate_result: str
     success: bool
     message: str
     course_wordcloud: Optional[Dict] = None
@@ -1038,20 +751,14 @@ class BatchGenerateResult(BaseModel):
 
 
 def get_wordcloud_service() -> WordcloudService:
-    """获取词云服务实例"""
-    return WordcloudService(courses_dir=str(get_courses_dir()))
+    return WordcloudService(courses_dir=str(get_markdown_courses_dir()))
 
 
 @router.get("/courses/{course_id}/wordcloud")
 async def get_course_wordcloud(course_id: str):
-    """
-    获取课程级词云数据
-    
-    从课程目录读取 wordcloud.json 文件，返回词云数据
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1067,15 +774,9 @@ async def get_course_wordcloud(course_id: str):
 
 @router.post("/courses/{course_id}/wordcloud")
 async def generate_course_wordcloud(course_id: str):
-    """
-    生成课程级词云
-    
-    使用 jieba TF-IDF 算法提取课程所有章节的关键词
-    聚合所有 markdown 文件内容生成词云
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1097,14 +798,9 @@ async def generate_course_wordcloud(course_id: str):
 
 @router.delete("/courses/{course_id}/wordcloud")
 async def delete_course_wordcloud(course_id: str):
-    """
-    删除课程级词云
-    
-    删除课程目录下的 wordcloud.json 文件
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1118,16 +814,11 @@ async def delete_course_wordcloud(course_id: str):
         return {"success": False, "message": "词云不存在"}
 
 
-@router.get("/courses/{course_id}/wordcloud/status")
+@router.get("/courses/{course_id}/wordcloud/status", response_model=WordcloudStatusResponse)
 async def get_course_wordcloud_status(course_id: str):
-    """
-    获取课程词云状态
-    
-    返回词云是否存在、生成时间、关键词数量等信息
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1151,16 +842,11 @@ async def get_course_wordcloud_status(course_id: str):
 
 @router.get("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
 async def get_chapter_wordcloud(course_id: str, chapter_name: str):
-    """
-    获取章节级词云数据
-    
-    从章节目录读取 wordcloud.json 文件
-    """
     course_id = validate_course_id(course_id)
-    chapter_name = validate_course_id(chapter_name)  # 复用验证逻辑
+    chapter_name = validate_course_id(chapter_name)
     
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1176,21 +862,15 @@ async def get_chapter_wordcloud(course_id: str, chapter_name: str):
 
 @router.post("/courses/{course_id}/chapters/{chapter_name}/wordcloud")
 async def generate_chapter_wordcloud(course_id: str, chapter_name: str):
-    """
-    生成章节级词云
-    
-    根据章节 markdown 文件生成词云
-    """
     course_id = validate_course_id(course_id)
     chapter_name = validate_course_id(chapter_name)
     
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
     
-    # 查找章节文件
     chapter_file = None
     for md_file in course_dir.glob("**/*.md"):
         if md_file.stem == chapter_name:
@@ -1215,14 +895,9 @@ async def generate_chapter_wordcloud(course_id: str, chapter_name: str):
 
 @router.get("/courses/{course_id}/chapters/wordcloud-status")
 async def list_chapter_wordcloud_status(course_id: str):
-    """
-    列出课程下所有章节的词云状态
-    
-    返回每个章节是否已生成词云
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")
@@ -1233,16 +908,11 @@ async def list_chapter_wordcloud_status(course_id: str):
     return [ChapterWordcloudStatus(**ch) for ch in chapters]
 
 
-@router.post("/courses/{course_id}/wordcloud/batch")
+@router.post("/courses/{course_id}/wordcloud/batch", response_model=BatchGenerateResult)
 async def batch_generate_wordclouds(course_id: str):
-    """
-    批量生成课程和所有章节的词云
-    
-    一次性生成课程级词云和所有章节级词云
-    """
     course_id = validate_course_id(course_id)
-    courses_dir = get_courses_dir()
-    course_dir = courses_dir / course_id
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_id
     
     if not course_dir.exists():
         raise HTTPException(status_code=404, detail="课程不存在")

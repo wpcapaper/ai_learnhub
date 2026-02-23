@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [course_import_lifecycle_refactor_20260223] - 2026-02-23
+
+### Changed
+ 课程转换管道：首次转换不再添加版本号后缀，不自动排序
+ 课程导入：使用 UUID 作为数据库主键，用 code 查重
+ 单一数据源：移除冗余的 courses/ 目录
+
+### Removed
+ 批量导入 API：`POST /api/admin/courses/import`
+ 批量转换 API：`POST /api/admin/courses/convert`（保留单课程转换）
+
+### Added
+ 章节重排 API：`POST /api/admin/courses/reorder/{code}` (TODO)
+ 生命周期文档：`FILE_LIFE_CIRCLE.md`
+
+### Files
+ `src/backend/app/course_pipeline/pipeline.py`
+ `src/backend/app/api/admin.py`
+ `src/backend/tests/test_course_refactor.py`
+ `FILE_LIFE_CIRCLE.md`
+
 ## [Unreleased]
 
 ### Added

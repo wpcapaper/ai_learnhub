@@ -4,9 +4,9 @@
 该模块协调整个课程转换流程：
 1. 扫描 raw_courses 目录
 2. 转换各种格式的课程文件
-3. 编排章节顺序
-4. 执行质量评估
-5. 输出到 markdown_courses/{name}_v{N}/ 目录
+3. 输出到 markdown_courses/{code}/ 目录
+
+章节排序为可选流程，通过 reorder API 触发
 
 所有RAG相关数据独立存储，不依赖业务数据库（app.db）
 """
@@ -42,6 +42,8 @@ class ChapterSorter:
     章节排序器
     
     自动检测和编排章节顺序，支持多种命名模式
+    
+    注意：此类用于独立的章节重排流程，不在首次转换时调用
     """
     
     # 常见的章节命名模式
@@ -161,7 +163,12 @@ class CoursePipeline:
     
     主入口类，协调整个转换流程
     
-    输出目录结构：markdown_courses/{course_name}_v{N}/
+    首次转换输出目录：markdown_courses/{code}/
+    章节重排后输出目录：markdown_courses/{code}_v{N}/
+    
+    设计说明：
+    - 首次转换不添加版本后缀，不进行章节排序
+    - 章节重排为独立流程，触发后添加版本后缀
     """
     
     def __init__(
@@ -183,9 +190,9 @@ class CoursePipeline:
         self.converter_registry = ConverterRegistry()
         self.quality_evaluator = QualityEvaluator(llm_client)
     
-    def _get_next_version(self, course_id: str) -> int:
+    def _get_next_version(self, course_code: str) -> int:
         """获取课程的下一个版本号"""
-        pattern = f"{course_id}_v*"
+        pattern = f"{course_code}_v*"
         existing_versions = []
         
         if self.markdown_courses_dir.exists():
@@ -227,7 +234,7 @@ class CoursePipeline:
                     source_files.append(SourceFile.from_path(str(file_path)))
             
             if source_files:
-                # 提取课程名称（从目录名或课程标题文件）
+                # 提取课程名称（从目录名）
                 course_name = self._extract_course_name(course_dir)
                 
                 courses.append(RawCourse(
@@ -261,13 +268,14 @@ class CoursePipeline:
         
         return copied_count
     
-    def convert_course(self, raw_course: RawCourse, version: Optional[int] = None) -> ConversionResult:
+    def convert_course(self, raw_course: RawCourse) -> ConversionResult:
         """
         转换单个课程
         
+        首次转换不带版本号，不进行章节排序
+        
         Args:
             raw_course: 原始课程数据
-            version: 指定版本号（可选，不传则自动递增）
         
         Returns:
             转换结果
@@ -275,24 +283,26 @@ class CoursePipeline:
         start_time = time.time()
         
         try:
-            # 确定版本号
-            if version is None:
-                version = self._get_next_version(raw_course.course_id)
+            # 1. 生成课程代码
+            course_code = self._generate_course_code(raw_course.course_id)
             
-            # 1. 创建输出目录：markdown_courses/{course_id}_v{N}/
-            output_dir_name = f"{raw_course.course_id}_v{version}"
-            output_dir = self.markdown_courses_dir / output_dir_name
+            # 2. 创建输出目录：markdown_courses/{code}/
+            output_dir = self.markdown_courses_dir / course_code
             output_dir.mkdir(parents=True, exist_ok=True)
             
-            # 1.5 复制图片等资源文件
+            # 3. 复制图片等资源文件
             self._copy_assets(raw_course.source_dir, output_dir)
             
-            # 2. 转换所有源文件
+            # 4. 转换所有源文件（保持原始顺序，不排序）
             all_chapters = []
-            for source_file in raw_course.source_files:
+            for idx, source_file in enumerate(raw_course.source_files):
                 converter = self.converter_registry.get_converter(source_file.content_type)
                 if converter:
                     chapters = converter.convert(source_file, output_dir)
+                    # 保持原始顺序
+                    for ch in chapters:
+                        if ch.sort_order == 0:
+                            ch.sort_order = idx + 1
                     all_chapters.extend(chapters)
             
             if not all_chapters:
@@ -301,39 +311,36 @@ class CoursePipeline:
                     error_message="没有成功转换任何章节"
                 )
             
-            # 3. 章节排序
-            sorted_chapters = ChapterSorter.sort_chapters(all_chapters)
-            
-            # 4. 写入章节文件
-            for chapter in sorted_chapters:
+            # 5. 写入章节文件
+            for chapter in all_chapters:
                 chapter_path = output_dir / chapter.file_name
                 with open(chapter_path, 'w', encoding='utf-8') as f:
                     f.write(chapter.content)
             
-            # 5. 创建转换后的课程对象
+            # 6. 创建转换后的课程对象
             converted_course = ConvertedCourse(
                 course_id=raw_course.course_id,
-                code=self._generate_course_code(raw_course.course_id),
+                code=course_code,
                 title=raw_course.name,
                 description=raw_course.description,
-                chapters=sorted_chapters
+                chapters=all_chapters
             )
             
-            # 6. 生成 course.json
+            # 7. 生成 course.json
             course_json_path = output_dir / "course.json"
             with open(course_json_path, 'w', encoding='utf-8') as f:
                 json.dump(converted_course.to_course_json(), f, ensure_ascii=False, indent=2)
             
-            # 7. 执行质量评估
+            # 8. 执行质量评估
             eval_context = EvaluationContext(
                 course_id=raw_course.course_id,
                 course_title=raw_course.name,
-                chapters=sorted_chapters
+                chapters=all_chapters
             )
             quality_report = self.quality_evaluator.evaluate(eval_context)
             converted_course.quality_report = quality_report
             
-            # 8. 保存质量报告（独立存储，不依赖数据库）
+            # 9. 保存质量报告（独立存储，不依赖数据库）
             save_quality_report(quality_report, output_dir)
             
             processing_time = time.time() - start_time
@@ -342,7 +349,7 @@ class CoursePipeline:
                 success=True,
                 course=converted_course,
                 processing_time=processing_time,
-                warnings=[f"处理了 {len(sorted_chapters)} 个章节"]
+                warnings=[f"处理了 {len(all_chapters)} 个章节"]
             )
             
         except Exception as e:
@@ -351,6 +358,25 @@ class CoursePipeline:
                 error_message=str(e),
                 processing_time=time.time() - start_time
             )
+    
+    def reorder_course(self, course_code: str) -> ConversionResult:
+        """
+        对已转换课程进行章节重排
+        
+        TODO: 实现章节重排逻辑
+        1. 读取现有 markdown_courses/{code}/course.json
+        2. 使用 ChapterSorter 重新排序
+        3. 检测现有版本，生成新版本号 N
+        4. 创建新目录 {code}_v{N}
+        5. 复制内容，更新 course.json（添加 origin, version 字段）
+        
+        Args:
+            course_code: 课程代码
+        
+        Returns:
+            转换结果
+        """
+        raise NotImplementedError("章节重排功能待实现")
     
     def convert_all(self) -> List[ConversionResult]:
         """
@@ -370,33 +396,14 @@ class CoursePipeline:
     
     def _extract_course_name(self, course_dir: Path) -> str:
         """从课程目录提取课程名称"""
-        # 尝试从目录名提取（去除序号前缀）
+        # 直接使用目录名作为课程名称
+        # 注意：不再尝试读取 course.json，该文件被视为无效
         dir_name = course_dir.name
+        
+        # 尝试去除数字前缀
         match = re.match(r'^\d+[._-]?(.+)$', dir_name)
         if match:
             return match.group(1).replace('_', ' ').replace('-', ' ')
-        
-        # 检查是否有 course.json 或 README
-        for filename in ['course.json', 'README.md', 'readme.md']:
-            path = course_dir / filename
-            if path.exists():
-                try:
-                    if filename.endswith('.json'):
-                        with open(path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            if 'title' in data:
-                                return data['title']
-                            if 'name' in data:
-                                return data['name']
-                    else:
-                        with open(path, 'r', encoding='utf-8') as f:
-                            first_line = f.readline()
-                            # 提取标题
-                            title_match = re.match(r'^#\s+(.+)$', first_line)
-                            if title_match:
-                                return title_match.group(1).strip()
-                except:
-                    pass
         
         return dir_name
     
