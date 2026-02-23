@@ -47,7 +47,8 @@ router = APIRouter(prefix="/admin", tags=["Admin"])
 # ==================== 请求/响应模型 ====================
 
 class CourseInfo(BaseModel):
-    course_info: str
+    """课程信息（已转换课程）"""
+    course_info: str = "course_info"  # 类型鉴别字段，固定值
     id: str
     code: str
     title: str
@@ -58,25 +59,29 @@ class CourseInfo(BaseModel):
 
 
 class ConvertResponse(BaseModel):
-    convert_response: str
+    """转换响应"""
+    convert_response: str = "convert_response"  # 类型鉴别字段
     message: str
     results: List[Dict[str, Any]]
 
 
 class OptimizationRequest(BaseModel):
-    optimization_request: str
+    """优化请求"""
+    optimization_request: str = "optimization_request"  # 类型鉴别字段
     course_id: str
     strategies: Optional[List[Dict[str, Any]]] = None
 
 
 class TaskResponse(BaseModel):
-    task_response: str
+    """任务响应"""
+    task_response: str = "task_response"  # 类型鉴别字段
     task_id: str
     status: str
 
 
 class RawCourseInfo(BaseModel):
-    raw_course_info: str
+    """原始课程信息（raw_courses 目录）"""
+    raw_course_info: str = "raw_course_info"  # 类型鉴别字段
     id: str
     name: str
     path: str
@@ -85,7 +90,8 @@ class RawCourseInfo(BaseModel):
 
 
 class DatabaseCourseInfo(BaseModel):
-    database_course_info: str
+    """数据库中的课程信息"""
+    database_course_info: str = "database_course_info"  # 类型鉴别字段
     id: str
     code: str
     title: str
@@ -97,7 +103,8 @@ class DatabaseCourseInfo(BaseModel):
 
 
 class DatabaseChapterInfo(BaseModel):
-    database_chapter_info: str
+    """数据库中的章节信息"""
+    database_chapter_info: str = "database_chapter_info"  # 类型鉴别字段
     id: str
     course_id: str
     title: str

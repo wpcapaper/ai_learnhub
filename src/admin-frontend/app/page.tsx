@@ -99,24 +99,17 @@ export default function CoursesPage() {
     }
   };
 
-  const handleImport = async () => {
-    setActionLoading('import');
+  /**
+   * 将单个已转换课程导入到数据库
+   * 
+   * @param courseCode - markdown_courses 目录中的课程代码（目录名）
+   *   - 对于未入库的课程，此参数是 course.code（即目录名，如 python_basics）
+   */
+  const handleImportSingle = async (courseCode: string) => {
+    setActionLoading(`import-${courseCode}`);
     setImportResult(null);
-    const response = await adminApi.importCoursesToDatabase();
-    setActionLoading(null);
-    
-    if (response.success && response.data) {
-      setImportResult(response.data);
-      loadAllData();
-    } else {
-      alert(`导入失败: ${response.error}`);
-    }
-  };
-
-  const handleImportSingle = async (courseId: string) => {
-    setActionLoading(`import-${courseId}`);
-    setImportResult(null);
-    const response = await adminApi.importSingleCourseToDatabase(courseId);
+    // 调用 API 将课程导入数据库，参数是课程代码（目录名）
+    const response = await adminApi.importSingleCourseToDatabase(courseCode);
     setActionLoading(null);
     
     if (response.success && response.data) {
@@ -411,30 +404,7 @@ export default function CoursesPage() {
 
       {activeTab === 'converted' && (
         <div>
-          <div className="flex justify-end mb-4">
-            <button 
-              onClick={handleImport} 
-              disabled={actionLoading === 'import'} 
-              className="btn btn-primary"
-            >
-              {actionLoading === 'import' ? (
-                <>
-                  <svg style={{width: '14px', height: '14px'}} className="icon-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  导入中...
-                </>
-              ) : (
-                <>
-                  <svg style={{width: '14px', height: '14px'}} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-一键导入所有课程
-                </>
-              )}
-            </button>
-          </div>
-          
+          {/* 已转换课程列表 - 用户可在单个课程卡片上点击「导入」按钮 */}
           {convertedCourses.length === 0 ? (
             <EmptyState 
               title="暂无已转换的课程" 
@@ -467,12 +437,7 @@ export default function CoursesPage() {
           {databaseCourses.length === 0 ? (
             <EmptyState 
               title="数据库中没有课程" 
-              description="请先导入转换后的课程到数据库"
-              action={
-                <button onClick={handleImport} disabled={actionLoading === 'import'} className="btn btn-primary">
-                  导入课程
-                </button>
-              }
+              description="请在「已转换」标签页中逐个导入课程到数据库"
             />
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -656,7 +621,7 @@ function RawCourseCard({ course, onConvert, loading }: {
 function CourseCard({ course, onGenerateQuiz, onImport, onManageWordcloud, actionLoading }: { 
   course: Course; 
   onGenerateQuiz: (courseId: string) => void;
-  onImport: (courseId: string) => void;
+  onImport: (courseCode: string) => void;  // 参数是课程代码（目录名）
   onManageWordcloud: (courseId: string, courseName: string) => void;
   actionLoading: string | null;
 }) {
@@ -705,12 +670,13 @@ function CourseCard({ course, onGenerateQuiz, onImport, onManageWordcloud, actio
       </div>
 
       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* 导入按钮：使用 course.code（目录名）而非 course.id */}
         <button 
-          onClick={() => onImport(course.id)}
-          disabled={actionLoading === `import-${course.id}`}
+          onClick={() => onImport(course.code)}
+          disabled={actionLoading === `import-${course.code}`}
           className="btn btn-primary flex-1 text-sm"
         >
-          {actionLoading === `import-${course.id}` ? '导入中...' : '导入'}
+          {actionLoading === `import-${course.code}` ? '导入中...' : '导入'}
         </button>
         <button 
           onClick={() => onGenerateQuiz(course.id)}
