@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [RAG-ARCH-001] - 2026-02-24
+
+### Changed
+ 知识库管理模块重构：按照 RAG_ARCHITECTURE.md 规范重构
+ Collection命名：`course_{source}_{code}` → `course_{code}_{kb_version}`
+ Metadata字段：精简为 code, source_file, position, char_start, char_end, content_type, char_count, estimated_tokens, kb_version
+ Chunk ID：随机UUID → `{code}__{file_hash}__{position:04d}` 稳定位置ID
+ 版本管理：通过 course.json 的 kb_version 字段集中管理
+
+### Files
+ `src/backend/app/rag/chunking/metadata.py`
+ `src/backend/app/rag/chunking/strategies.py`
+ `src/backend/app/rag/vector_store/chroma.py`
+ `src/backend/app/rag/service.py`
+ `src/backend/app/api/admin_kb.py`
+ `src/backend/app/tasks/jobs.py`
+ `src/admin-frontend/app/knowledge-base/page.tsx`
+
 ## [admin-fix-0224] - 2026-02-24
 
 ### Fixed

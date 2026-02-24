@@ -8,7 +8,8 @@ import logging
 from .chunking import (
     SemanticChunkingStrategy,
     ContentFilter,
-    Chunk
+    Chunk,
+    generate_chunk_id
 )
 from .embedding import EmbeddingModelFactory, EmbeddingModel
 from .vector_store import ChromaVectorStore
@@ -27,10 +28,7 @@ class RetrievalMode:
 
 
 def _resolve_env_vars(value: Any) -> Any:
-    """
-    递归解析配置中的环境变量
-    支持 ${VAR_NAME:default} 语法
-    """
+    """递归解析配置中的环境变量"""
     if isinstance(value, str):
         pattern = r'\$\{([^}:]+)(?::([^}]*))?\}'
         
@@ -51,10 +49,7 @@ def _resolve_env_vars(value: Any) -> Any:
 
 
 def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """
-    加载 RAG 配置文件
-    优先级：指定路径 > 环境变量 > 默认路径
-    """
+    """加载 RAG 配置文件"""
     if config_path is None:
         config_path = os.getenv("RAG_CONFIG_PATH")
     
@@ -77,11 +72,27 @@ def _load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     }
 
 
+def get_collection_name(code: str, kb_version: int = 1) -> str:
+    """
+    生成符合 RAG_ARCHITECTURE.md 规范的 Collection 名称
+    
+    格式: course_{code}_{kb_version}
+    示例: course_python_basics_1
+    """
+    return normalize_collection_name(f"course_{code}_{kb_version}")
+
+
 class RAGService:
-    """RAG 服务统一入口，支持配置化加载和延迟初始化"""
+    """RAG 服务统一入口
+    
+    按照 RAG_ARCHITECTURE.md 规范：
+    - Collection 命名：course_{code}_{kb_version}
+    - 课程级 Collection，章节通过 metadata 过滤
+    - 版本管理通过 kb_version 参数
+    """
     
     _instance: Optional['RAGService'] = None
-    _class_config: Optional[Dict[str, Any]] = None  # 类变量，单例模式使用
+    _class_config: Optional[Dict[str, Any]] = None
     
     @classmethod
     def get_instance(cls, config_path: Optional[str] = None) -> 'RAGService':
@@ -93,17 +104,11 @@ class RAGService:
     
     @classmethod
     def reset_instance(cls):
-        """重置单例（用于测试或重新加载配置）"""
+        """重置单例"""
         cls._instance = None
         cls._class_config = None
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        """
-        初始化 RAG 服务
-        
-        Args:
-            config: 配置字典，为 None 时自动加载默认配置
-        """
         if config is not None:
             self._config = config
         else:
@@ -114,7 +119,7 @@ class RAGService:
         self._reranker: Optional[Reranker] = None
         self._query_expander: Optional[QueryExpander] = None
         self._language_detector: Optional[LanguageDetector] = None
-        self._keyword_retriever: Optional[Any] = None  # 关键词检索器（混合检索用）
+        self._keyword_retriever: Optional[Any] = None
         
         # 向量存储配置
         vector_config = self._config.get("vector_store", {})
@@ -132,12 +137,7 @@ class RAGService:
         # 检索配置
         retrieval_config = self._config.get("retrieval", {})
         self.default_top_k = retrieval_config.get("default_top_k", 5)
-        
-        # 检索模式: vector | hybrid | vector_rerank
-        # 默认使用纯向量检索，最简单
         self.retrieval_mode = retrieval_config.get("mode", RetrievalMode.VECTOR)
-        
-        # 混合检索权重（仅hybrid模式使用）
         self.vector_weight = retrieval_config.get("vector_weight", 0.7)
         self.keyword_weight = retrieval_config.get("keyword_weight", 0.3)
     
@@ -151,7 +151,7 @@ class RAGService:
     
     @property
     def reranker(self) -> Optional[Reranker]:
-        """延迟初始化 Reranker（仅配置启用时创建）"""
+        """延迟初始化 Reranker"""
         if self._reranker is None:
             rerank_config = self._config.get("rerank", {})
             enabled = self._str_to_bool(rerank_config.get("enabled", "false"))
@@ -192,7 +192,6 @@ class RAGService:
     def query_expander(self) -> Optional[QueryExpander]:
         """延迟初始化查询扩展器"""
         if self._query_expander is None:
-            # 查询扩展默认禁用
             self._query_expander = QueryExpander() if False else None
         return self._query_expander
     
@@ -203,17 +202,17 @@ class RAGService:
             self._language_detector = LanguageDetector()
         return self._language_detector
     
-    def _get_vector_store(self, course_id: str, source: str = "local") -> ChromaVectorStore:
+    def _get_vector_store(self, code: str, kb_version: int = 1) -> ChromaVectorStore:
         """获取或创建课程的向量存储"""
-        collection_name = normalize_collection_name(f"course_{source}_{course_id}")
+        collection_name = get_collection_name(code, kb_version)
         return ChromaVectorStore(
             collection_name=collection_name,
             persist_directory=self.persist_directory
         )
     
-    def get_retriever(self, course_id: str, source: str = "online") -> RAGRetriever:
-        """获取或创建检索器（默认使用线上数据源）"""
-        vector_store = self._get_vector_store(course_id, source)
+    def get_retriever(self, code: str, kb_version: int = 1) -> RAGRetriever:
+        """获取或创建检索器"""
+        vector_store = self._get_vector_store(code, kb_version)
         return RAGRetriever(
             embedding_model=self.embedding_model,
             vector_store=vector_store
@@ -222,10 +221,9 @@ class RAGService:
     async def index_course_content(
         self,
         content: str,
-        course_id: str,
-        chapter_id: Optional[str] = None,
-        chapter_title: Optional[str] = None,
-        source_file: Optional[str] = None,
+        code: str,
+        source_file: str,
+        kb_version: int = 1,
         clear_existing: bool = False
     ) -> int:
         """
@@ -233,10 +231,9 @@ class RAGService:
         
         Args:
             content: 课程内容（Markdown 格式）
-            course_id: 课程 ID
-            chapter_id: 章节 ID
-            chapter_title: 章节标题
-            source_file: 源文件路径（用于跨设备复用）
+            code: 课程代码（目录名）
+            source_file: 源文件路径（相对于课程目录）
+            kb_version: 知识库版本号
             clear_existing: 是否清除已有索引
         
         Returns:
@@ -245,16 +242,15 @@ class RAGService:
         # 1. 按语义切分文档
         chunks = self.chunking_strategy.chunk(
             content=content,
-            course_id=course_id,
-            chapter_id=chapter_id,
-            chapter_title=chapter_title,
-            source_file=source_file or chapter_title
+            code=code,
+            source_file=source_file,
+            kb_version=kb_version
         )
         
-        # 2. 过滤不适合 embedding 的内容（如纯代码、公式等）
+        # 2. 过滤不适合 embedding 的内容
         filtered_chunks = []
         for chunk in chunks:
-            if ContentFilter.should_embed(chunk.text, chunk.metadata.get("content_type", "paragraph")):
+            if ContentFilter.should_embed(chunk.text, chunk.metadata.get("content_type") or "paragraph"):
                 chunk.text = ContentFilter.clean_text(chunk.text)
                 if chunk.text:
                     filtered_chunks.append(chunk)
@@ -273,10 +269,10 @@ class RAGService:
         ]
         
         # 5. 写入向量数据库
-        vector_store = self._get_vector_store(course_id)
+        vector_store = self._get_vector_store(code, kb_version)
         if clear_existing:
             vector_store.delete_collection()
-            vector_store = self._get_vector_store(course_id)
+            vector_store = self._get_vector_store(code, kb_version)
         
         vector_store.add_chunks(chunk_data, embeddings)
         return len(filtered_chunks)
@@ -284,7 +280,8 @@ class RAGService:
     async def retrieve(
         self,
         query: str,
-        course_id: str,
+        code: str,
+        kb_version: int = 1,
         top_k: Optional[int] = None,
         filters: Optional[Dict[str, Any]] = None,
         score_threshold: float = 0.0,
@@ -296,33 +293,30 @@ class RAGService:
         
         Args:
             query: 用户查询文本
-            course_id: 课程 ID
-            top_k: 返回结果数量，默认使用配置值
-            filters: 元数据过滤条件
+            code: 课程代码
+            kb_version: 知识库版本号
+            top_k: 返回结果数量
+            filters: 元数据过滤条件（如 source_file）
             score_threshold: 相似度阈值
             use_expansion: 是否启用查询扩展
-            mode: 检索模式，覆盖配置值
+            mode: 检索模式
         
         Returns:
             检索结果列表，按相似度降序排列
         """
-        # 确保 top_k 非空
         actual_top_k = top_k if top_k is not None else self.default_top_k
         retrieval_mode = mode or self.retrieval_mode
         
         # 获取基础检索器
-        retriever = self.get_retriever(course_id)
+        retriever = self.get_retriever(code, kb_version)
         
         # 根据模式执行检索
         if retrieval_mode == RetrievalMode.VECTOR:
             results = await self._vector_retrieve(retriever, query, actual_top_k, filters, score_threshold)
-        
         elif retrieval_mode == RetrievalMode.VECTOR_RERANK:
             results = await self._vector_rerank_retrieve(retriever, query, actual_top_k, filters, score_threshold)
-        
         elif retrieval_mode == RetrievalMode.HYBRID:
-            results = await self._hybrid_retrieve(retriever, query, course_id, actual_top_k, filters, score_threshold)
-        
+            results = await self._hybrid_retrieve(retriever, query, code, actual_top_k, filters, score_threshold)
         else:
             results = await self._vector_retrieve(retriever, query, actual_top_k, filters, score_threshold)
         
@@ -379,7 +373,7 @@ class RAGService:
         self,
         retriever: RAGRetriever,
         query: str,
-        course_id: str,
+        code: str,
         top_k: int,
         filters: Optional[Dict[str, Any]],
         score_threshold: float
@@ -399,7 +393,7 @@ class RAGService:
         
         keyword_results = await self._keyword_retriever.retrieve(
             query=query,
-            course_id=course_id,
+            course_id=code,
             top_k=top_k * 2,
             filters=filters
         )
@@ -440,12 +434,22 @@ class RAGService:
         
         return sorted_results[:top_k]
     
-    def get_collection_size(self, course_id: str) -> int:
+    def get_collection_size(self, code: str, kb_version: int = 1) -> int:
         """获取课程索引的 chunk 数量"""
-        vector_store = self._get_vector_store(course_id)
+        vector_store = self._get_vector_store(code, kb_version)
         return vector_store.get_collection_size()
     
-    def delete_course_index(self, course_id: str) -> None:
+    def delete_course_index(self, code: str, kb_version: int = 1) -> None:
         """删除课程的向量索引"""
-        vector_store = self._get_vector_store(course_id)
+        vector_store = self._get_vector_store(code, kb_version)
         vector_store.delete_collection()
+    
+    def delete_chapter_chunks(self, code: str, source_file: str, kb_version: int = 1) -> int:
+        """删除指定章节的所有 chunks"""
+        vector_store = self._get_vector_store(code, kb_version)
+        return vector_store.delete_by_source_file(source_file)
+    
+    def get_all_chunks(self, code: str, kb_version: int = 1) -> List[Dict[str, Any]]:
+        """获取课程的所有 chunks"""
+        vector_store = self._get_vector_store(code, kb_version)
+        return vector_store.get_all_chunks()

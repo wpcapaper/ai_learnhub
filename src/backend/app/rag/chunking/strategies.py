@@ -3,10 +3,8 @@
 import re
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any, Optional
-import uuid
 
-from .metadata import Chunk, extract_metadata
-from .version import CHUNK_STRATEGY_VERSION, CURRENT_STRATEGY_VERSION
+from .metadata import Chunk, extract_metadata, generate_chunk_id
 
 
 class ChunkingStrategy(ABC):
@@ -16,9 +14,9 @@ class ChunkingStrategy(ABC):
     def chunk(
         self,
         content: str,
-        course_id: str,
-        chapter_id: Optional[str] = None,
-        chapter_title: Optional[str] = None,
+        code: str,
+        source_file: str,
+        kb_version: int = 1,
         **kwargs
     ) -> List[Chunk]:
         """
@@ -26,10 +24,9 @@ class ChunkingStrategy(ABC):
         
         Args:
             content: 文档内容（Markdown格式）
-            course_id: 课程ID
-            chapter_id: 章节ID
-            chapter_title: 章节标题
-            **kwargs: 其他参数
+            code: 课程代码（目录名）
+            source_file: 源文件路径（相对于课程目录）
+            kb_version: 知识库版本号
         
         Returns:
             Chunk列表
@@ -59,16 +56,13 @@ class SemanticChunkingStrategy(ChunkingStrategy):
     def chunk(
         self,
         content: str,
-        course_id: str,
-        chapter_id: Optional[str] = None,
-        chapter_title: Optional[str] = None,
-        source_file: Optional[str] = None,
+        code: str,
+        source_file: str,
+        kb_version: int = 1,
         **kwargs
     ) -> List[Chunk]:
         """按语义边界切割，保持标题与内容的关联"""
         chunks = []
-        
-        source = source_file or chapter_title or chapter_id
         
         # 按Markdown标题层级分割成sections
         sections = self._split_by_headers(content)
@@ -79,31 +73,37 @@ class SemanticChunkingStrategy(ChunkingStrategy):
             if not section_text:
                 continue
             
+            # 计算section在原文中的字符位置
+            char_start = section.get("char_start", 0)
+            char_end = section.get("char_end", char_start + len(section_text))
+            
             # 如果section太大，需要进一步切割
             if len(section_text) > self.max_chunk_size:
                 sub_chunks = self._split_large_section(
                     section_text,
-                    course_id,
-                    chapter_id,
-                    chapter_title,
-                    source,
+                    code,
+                    source_file,
+                    kb_version,
                     position,
+                    char_start,
                     section.get("header_level", 0)
                 )
                 chunks.extend(sub_chunks)
                 position += len(sub_chunks)
             else:
+                chunk_id = generate_chunk_id(code, source_file, position)
                 chunk = Chunk(
-                    chunk_id=str(uuid.uuid4()),
+                    chunk_id=chunk_id,
                     text=section_text,
                     metadata=extract_metadata(
                         section_text,
-                        course_id,
-                        chapter_id,
-                        chapter_title,
-                        source,
+                        code,
+                        source_file,
                         position,
-                        section.get("type", "paragraph")
+                        char_start,
+                        char_end,
+                        section.get("type", "paragraph"),
+                        kb_version
                     )
                 )
                 chunks.append(chunk)
@@ -116,32 +116,44 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         按Markdown标题分割，保持标题与后续内容的关联
         
         每个section包含标题及其下的所有内容（直到下一个同级或更高级标题）
+        同时记录字符位置信息
         """
         sections = []
         lines = content.split('\n')
         
-        current_section = {"text": "", "type": "paragraph", "header_level": 0, "has_code": False}
+        current_section = {
+            "text": "",
+            "type": "paragraph",
+            "header_level": 0,
+            "has_code": False,
+            "char_start": 0
+        }
         in_code_block = False
         in_table = False
+        char_pos = 0
         
         for i, line in enumerate(lines):
             stripped = line.strip()
+            line_len = len(line) + 1  # +1 for newline
             
             # 代码块处理（不解析内部内容）
             if stripped.startswith('```'):
                 in_code_block = not in_code_block
                 current_section["has_code"] = True
                 current_section["text"] += line + "\n"
+                char_pos += line_len
                 continue
             
             if in_code_block:
                 current_section["text"] += line + "\n"
+                char_pos += line_len
                 continue
             
             # 表格处理
             if '|' in stripped and stripped.startswith('|'):
                 in_table = True
                 current_section["text"] += line + "\n"
+                char_pos += line_len
                 continue
             elif in_table and not stripped.startswith('|'):
                 in_table = False
@@ -155,24 +167,31 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                 if header_level <= current_section.get("header_level", 0) or current_section.get("header_level", 0) == 0:
                     if current_section["text"].strip():
                         current_section["type"] = "code_block" if current_section["has_code"] else "paragraph"
+                        current_section["char_end"] = char_pos
                         sections.append(current_section)
+                    
                     current_section = {
                         "text": line + "\n",
                         "type": "heading",
                         "header_level": header_level,
-                        "has_code": False
+                        "has_code": False,
+                        "char_start": char_pos
                     }
                 else:
                     # 子标题，追加到当前section
                     current_section["text"] += line + "\n"
+                
+                char_pos += line_len
                 continue
             
             # 普通内容追加到当前section
             current_section["text"] += line + "\n"
+            char_pos += line_len
         
         # 添加最后一个section
         if current_section["text"].strip():
             current_section["type"] = "code_block" if current_section["has_code"] else "paragraph"
+            current_section["char_end"] = char_pos
             sections.append(current_section)
         
         return sections
@@ -180,15 +199,24 @@ class SemanticChunkingStrategy(ChunkingStrategy):
     def _split_large_section(
         self,
         text: str,
-        course_id: str,
-        chapter_id: Optional[str],
-        chapter_title: Optional[str],
-        source_file: Optional[str],
+        code: str,
+        source_file: str,
+        kb_version: int,
         base_position: int,
+        base_char_start: int,
         header_level: int = 0
     ) -> List[Chunk]:
         """
         切割过大的section，优先保持代码块和表格的完整性
+        
+        Args:
+            text: 需要切割的文本
+            code: 课程代码
+            source_file: 源文件路径
+            kb_version: 知识库版本号
+            base_position: 基础位置序号
+            base_char_start: 基础字符起始位置
+            header_level: 标题层级
         """
         chunks = []
         
@@ -197,25 +225,31 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         
         position = 0
         current_chunk_text = ""
+        current_char_start = base_char_start
+        char_offset = 0
         
         for sub in sub_sections:
             sub_text = sub["text"].strip()
             sub_type = sub.get("type", "paragraph")
+            sub_char_start = base_char_start + char_offset
+            sub_char_end = sub_char_start + len(sub_text)
             
             # 代码块和表格完全不拆分，保持完整性
             if sub_type in ("code_block", "table"):
                 if current_chunk_text:
+                    chunk_id = generate_chunk_id(code, source_file, base_position + position)
                     chunk = Chunk(
-                        chunk_id=str(uuid.uuid4()),
+                        chunk_id=chunk_id,
                         text=current_chunk_text.strip(),
                         metadata=extract_metadata(
                             current_chunk_text,
-                            course_id,
-                            chapter_id,
-                            chapter_title,
+                            code,
                             source_file,
                             base_position + position,
-                            "paragraph"
+                            current_char_start,
+                            base_char_start + char_offset - 1,
+                            "paragraph",
+                            kb_version
                         )
                     )
                     chunks.append(chunk)
@@ -223,17 +257,19 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                     current_chunk_text = ""
                 
                 # 完整保留代码块/表格，即使超过 max_chunk_size
+                chunk_id = generate_chunk_id(code, source_file, base_position + position)
                 chunk = Chunk(
-                    chunk_id=str(uuid.uuid4()),
+                    chunk_id=chunk_id,
                     text=sub_text,
                     metadata=extract_metadata(
                         sub_text,
-                        course_id,
-                        chapter_id,
-                        chapter_title,
+                        code,
                         source_file,
                         base_position + position,
-                        sub_type
+                        sub_char_start,
+                        sub_char_end,
+                        sub_type,
+                        kb_version
                     )
                 )
                 chunks.append(chunk)
@@ -244,36 +280,44 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                     current_chunk_text += "\n\n" + sub_text if current_chunk_text else sub_text
                 else:
                     if current_chunk_text:
+                        chunk_id = generate_chunk_id(code, source_file, base_position + position)
                         chunk = Chunk(
-                            chunk_id=str(uuid.uuid4()),
+                            chunk_id=chunk_id,
                             text=current_chunk_text.strip(),
                             metadata=extract_metadata(
                                 current_chunk_text,
-                                course_id,
-                                chapter_id,
-                                chapter_title,
+                                code,
                                 source_file,
                                 base_position + position,
-                                "paragraph"
+                                current_char_start,
+                                base_char_start + char_offset - 1,
+                                "paragraph",
+                                kb_version
                             )
                         )
                         chunks.append(chunk)
                         position += 1
+                        current_char_start = base_char_start + char_offset
+                    
                     current_chunk_text = sub_text
+            
+            char_offset += len(sub.get("raw_text", sub_text)) + 2  # +2 for paragraph break
         
         # 添加最后的chunk
         if current_chunk_text.strip():
+            chunk_id = generate_chunk_id(code, source_file, base_position + position)
             chunk = Chunk(
-                chunk_id=str(uuid.uuid4()),
+                chunk_id=chunk_id,
                 text=current_chunk_text.strip(),
                 metadata=extract_metadata(
                     current_chunk_text,
-                    course_id,
-                    chapter_id,
-                    chapter_title,
+                    code,
                     source_file,
                     base_position + position,
-                    "paragraph"
+                    current_char_start,
+                    base_char_start + char_offset - 1,
+                    "paragraph",
+                    kb_version
                 )
             )
             chunks.append(chunk)
@@ -284,16 +328,18 @@ class SemanticChunkingStrategy(ChunkingStrategy):
         """
         分割文本但保持代码块和表格的完整性
         同时将代码块前的简短说明文字与代码块合并
+        返回每个子块的字符位置信息
         """
         sections = []
         lines = text.split('\n')
         
-        current = {"text": "", "type": "paragraph"}
+        current = {"text": "", "type": "paragraph", "raw_text": ""}
         in_code = False
         in_table = False
         
         for line in lines:
             stripped = line.strip()
+            raw_line = line + "\n"
             
             # 代码块开始
             if stripped.startswith('```'):
@@ -303,23 +349,26 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                     if preceding_text and len(preceding_text) < 200:
                         # 简短说明，合并到代码块
                         current["text"] = preceding_text + "\n" + line + "\n"
+                        current["raw_text"] += raw_line
                         current["type"] = "code_block"
                     else:
                         # 较长说明，单独成段
                         if preceding_text:
                             sections.append(current)
-                        current = {"text": line + "\n", "type": "code_block"}
+                        current = {"text": line + "\n", "type": "code_block", "raw_text": raw_line}
                     in_code = True
                 else:
                     # 代码块结束
                     current["text"] += line + "\n"
+                    current["raw_text"] += raw_line
                     sections.append(current)
-                    current = {"text": "", "type": "paragraph"}
+                    current = {"text": "", "type": "paragraph", "raw_text": ""}
                     in_code = False
                 continue
             
             if in_code:
                 current["text"] += line + "\n"
+                current["raw_text"] += raw_line
                 continue
             
             # 表格检测
@@ -328,81 +377,26 @@ class SemanticChunkingStrategy(ChunkingStrategy):
                 if not in_table:
                     if current["text"].strip():
                         sections.append(current)
-                    current = {"text": line + "\n", "type": "table"}
+                    current = {"text": line + "\n", "type": "table", "raw_text": raw_line}
                     in_table = True
                 else:
                     current["text"] += line + "\n"
+                    current["raw_text"] += raw_line
                 continue
             elif in_table:
                 # 表格结束
                 sections.append(current)
-                current = {"text": line + "\n", "type": "paragraph"}
+                current = {"text": line + "\n", "type": "paragraph", "raw_text": raw_line}
                 in_table = False
                 continue
             
             current["text"] += line + "\n"
+            current["raw_text"] += raw_line
         
         if current["text"].strip():
             sections.append(current)
         
         return sections
-    
-    def _split_code_by_lines(
-        self,
-        code_text: str,
-        course_id: str,
-        chapter_id: Optional[str],
-        chapter_title: Optional[str],
-        source_file: Optional[str],
-        base_position: int,
-        content_type: str
-    ) -> List[Chunk]:
-        """按行拆分过大的代码块"""
-        chunks = []
-        lines = code_text.split('\n')
-        
-        current = ""
-        position = 0
-        
-        for line in lines:
-            if len(current) + len(line) + 1 > self.max_chunk_size - 100:
-                if current.strip():
-                    chunk = Chunk(
-                        chunk_id=str(uuid.uuid4()),
-                        text=current.strip(),
-                        metadata=extract_metadata(
-                            current,
-                            course_id,
-                            chapter_id,
-                            chapter_title,
-                            source_file,
-                            base_position + position,
-                            content_type
-                        )
-                    )
-                    chunks.append(chunk)
-                    position += 1
-                current = line + "\n"
-            else:
-                current += line + "\n"
-        
-        if current.strip():
-            chunk = Chunk(
-                chunk_id=str(uuid.uuid4()),
-                text=current.strip(),
-                metadata=extract_metadata(
-                    current,
-                    course_id,
-                    chapter_id,
-                    chapter_title,
-                    source_file,
-                    base_position + position,
-                    content_type
-                )
-            )
-            chunks.append(chunk)
-        
-        return chunks
 
 
 class FixedSizeChunkingStrategy(ChunkingStrategy):
@@ -424,17 +418,14 @@ class FixedSizeChunkingStrategy(ChunkingStrategy):
     def chunk(
         self,
         content: str,
-        course_id: str,
-        chapter_id: Optional[str] = None,
-        chapter_title: Optional[str] = None,
-        source_file: Optional[str] = None,
+        code: str,
+        source_file: str,
+        kb_version: int = 1,
         **kwargs
     ) -> List[Chunk]:
         """按固定大小切割"""
         chunks = []
         text = content.strip()
-        
-        source = source_file or chapter_title or chapter_id
         
         position = 0
         start = 0
@@ -452,17 +443,19 @@ class FixedSizeChunkingStrategy(ChunkingStrategy):
             
             chunk_text = text[start:end].strip()
             if chunk_text:
+                chunk_id = generate_chunk_id(code, source_file, position)
                 chunk = Chunk(
-                    chunk_id=str(uuid.uuid4()),
+                    chunk_id=chunk_id,
                     text=chunk_text,
                     metadata=extract_metadata(
                         chunk_text,
-                        course_id,
-                        chapter_id,
-                        chapter_title,
-                        source,
+                        code,
+                        source_file,
                         position,
-                        "paragraph"
+                        start,
+                        end,
+                        "paragraph",
+                        kb_version
                     )
                 )
                 chunks.append(chunk)

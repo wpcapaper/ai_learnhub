@@ -15,8 +15,8 @@ import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from app.rag.service import RAGService, normalize_collection_name
-from app.rag.vector_store import ChromaVectorStore
+from app.rag.service import RAGService
+
 from app.core.database import SessionLocal
 from app.models import ChapterKBConfig
 from app.tasks.queue import acquire_course_lock, release_course_lock
@@ -306,29 +306,27 @@ def generate_quiz(
 
 
 def index_chapter(
-    chapter_id: str,
-    course_id: str,
-    chapter_file: str,
+    temp_ref: str,
+    code: str,
+    source_file: str,
     config: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     索引单个章节到向量数据库
     
-    版本控制机制：
-    1. 先写入新版本的 chunks
-    2. 成功后删除该章节的旧版本 chunks
-    3. 查询时默认只返回当前版本的数据
+    按照 RAG_ARCHITECTURE.md 规范：
+    - Collection 命名：course_{code}_{kb_version}
+    - 使用 code（课程目录名）和 source_file（章节文件路径）标识
     
     Args:
-        chapter_id: 章节 ID（或 temp_ref）
-        course_id: 课程 ID（目录名）
-        chapter_file: 章节文件路径
+        temp_ref: 临时引用（格式：{code}/{source_file}，用于数据库记录）
+        code: 课程代码（目录名）
+        source_file: 章节文件路径（相对于课程目录）
         config: 索引配置
             - chunking_strategy: 切分策略
             - chunk_size: 块大小
             - chunk_overlap: 重叠大小
-            - code_block_strategy: 代码块处理策略
-            - clear_existing: 是否清除已有索引（包括其他章节）
+            - kb_version: 知识库版本号（默认从 course.json 读取）
     
     Returns:
         索引结果
@@ -336,56 +334,46 @@ def index_chapter(
     langfuse_client, trace, start_time = _create_trace("index_chapter", ["task", "rag", "index"])
     
     input_data = {
-        "chapter_id": chapter_id,
-        "course_id": course_id,
-        "chapter_file": chapter_file,
+        "temp_ref": temp_ref,
+        "code": code,
+        "source_file": source_file,
     }
     
     if trace:
         trace.update(input=input_data)
     
-    logger.info(f"开始索引章节: chapter={chapter_id}, course={course_id}")
+    logger.info(f"开始索引章节: code={code}, source_file={source_file}")
     
     config = config or {}
-    clear_existing = config.get("clear_existing", False)
+    kb_version = config.get("kb_version", 1)
     
     error_occurred = None
     
     try:
         from pathlib import Path
+        import json
+        
+        # 尝试从 course.json 读取 kb_version（如果未指定）
+        if not config.get("kb_version"):
+            courses_dir = Path(__file__).parent.parent.parent / "courses"
+            course_json_path = courses_dir / code / "course.json"
+            if course_json_path.exists():
+                with open(course_json_path, "r", encoding="utf-8") as f:
+                    course_data = json.load(f)
+                    kb_version = course_data.get("kb_version", 1)
         
         rag_service = RAGService.get_instance()
         
-        # /app/app/tasks/jobs.py -> /app/courses
+        # 读取章节文件
         courses_dir = Path(__file__).parent.parent.parent / "courses"
-        chapter_path = courses_dir / course_id / chapter_file
+        chapter_path = courses_dir / code / source_file
         
         if not chapter_path.exists():
             raise ValueError(f"章节文件不存在: {chapter_path}")
         
         content = chapter_path.read_text(encoding="utf-8")
         
-        collection_name = normalize_collection_name(f"course_local_{course_id}")
-        
-        store = ChromaVectorStore(
-            collection_name=collection_name,
-            persist_directory=rag_service.persist_directory
-        )
-        
-        if clear_existing:
-            try:
-                store.delete_collection()
-                store = ChromaVectorStore(
-                    collection_name=collection_name,
-                    persist_directory=rag_service.persist_directory
-                )
-            except Exception:
-                pass
-        
-        # 获取当前章节的旧版本 chunk IDs（在写入新数据之前）
-        source_file = f"{course_id}/{chapter_file}"
-        legacy_chunk_ids = store.get_legacy_chunk_ids(source_file=source_file)
-        
+        # 配置切分策略（如果指定）
         if config.get("chunking_strategy"):
             from app.rag.chunking import SemanticChunkingStrategy
             rag_service.chunking_strategy = SemanticChunkingStrategy(
@@ -394,32 +382,22 @@ def index_chapter(
                 overlap_size=config.get("chunk_overlap", 200)
             )
         
+        # 使用新 API 索引内容
         import asyncio
         chunk_count = asyncio.run(rag_service.index_course_content(
             content=content,
-            course_id=course_id,
-            chapter_id=source_file,  # 使用 source_file 作为章节标识，用于过滤
-            chapter_title=chapter_file,
+            code=code,
             source_file=source_file,
-            clear_existing=False  # 不再清除，因为我们已经有版本控制
+            kb_version=kb_version,
+            clear_existing=False
         ))
         
-        # 新版本写入成功后，删除旧版本数据
-        if legacy_chunk_ids:
-            store.delete_chunks(legacy_chunk_ids)
-            logger.info(f"已删除 {len(legacy_chunk_ids)} 个旧版本 chunks: {source_file}")
-        
+        # 更新章节索引状态
         db = SessionLocal()
         try:
-            # 优先按 temp_ref 查询（因为 chapter_id 参数实际传入的是 temp_ref 格式）
             kb_config = db.query(ChapterKBConfig).filter(
-                ChapterKBConfig.temp_ref == chapter_id
+                ChapterKBConfig.temp_ref == temp_ref
             ).first()
-            
-            if not kb_config:
-                kb_config = db.query(ChapterKBConfig).filter(
-                    ChapterKBConfig.chapter_id == chapter_id
-                ).first()
             
             if kb_config:
                 kb_config.index_status = "indexed"
@@ -428,23 +406,25 @@ def index_chapter(
                 kb_config.updated_at = datetime.utcnow()
                 kb_config.current_task_id = None
                 db.commit()
-                logger.info(f"更新章节索引状态: temp_ref={chapter_id}, status=indexed, chunks={chunk_count}")
+                logger.info(f"更新章节索引状态: temp_ref={temp_ref}, status=indexed, chunks={chunk_count}")
             else:
-                logger.warning(f"未找到章节配置记录: temp_ref={chapter_id}")
+                logger.warning(f"未找到章节配置记录: temp_ref={temp_ref}")
         except Exception as e:
             logger.error(f"更新章节索引状态失败: {e}")
         finally:
             db.close()
         
         result = {
-            "chapter_id": chapter_id,
+            "temp_ref": temp_ref,
+            "code": code,
+            "source_file": source_file,
             "chunk_count": chunk_count,
-            "legacy_chunks_removed": len(legacy_chunk_ids),
+            "kb_version": kb_version,
             "status": "success",
             "created_at": datetime.utcnow().isoformat(),
         }
         
-        logger.info(f"章节索引完成: chapter={chapter_id}, chunks={chunk_count}, removed={len(legacy_chunk_ids)}")
+        logger.info(f"章节索引完成: code={code}, source_file={source_file}, chunks={chunk_count}")
         return result
         
     except Exception as e:
@@ -453,12 +433,8 @@ def index_chapter(
         try:
             db = SessionLocal()
             kb_config = db.query(ChapterKBConfig).filter(
-                ChapterKBConfig.chapter_id == chapter_id
+                ChapterKBConfig.temp_ref == temp_ref
             ).first()
-            if not kb_config:
-                kb_config = db.query(ChapterKBConfig).filter(
-                    ChapterKBConfig.temp_ref == chapter_id
-                ).first()
             if kb_config:
                 kb_config.index_status = "failed"
                 kb_config.index_error = str(e)
@@ -476,7 +452,7 @@ def index_chapter(
 
 
 def index_course(
-    course_id: str,
+    code: str,
     chapters: list,
     config: Optional[Dict[str, Any]] = None,
     task_id: Optional[str] = None
@@ -484,10 +460,16 @@ def index_course(
     """
     批量索引课程下所有章节
     
+    按照 RAG_ARCHITECTURE.md 规范：
+    - Collection 命名：course_{code}_{kb_version}
+    - 使用 code（课程目录名）作为主标识符
+    
     Args:
-        course_id: 课程 ID（目录名）
-        chapters: 章节列表 [{"chapter_id": "...", "chapter_file": "..."}, ...]
+        code: 课程代码（目录名）
+        chapters: 章节列表 [{"temp_ref": "...", "chapter_file": "..."}, ...]
         config: 索引配置（传递给 index_chapter）
+            - kb_version: 知识库版本号
+            - clear_existing: 是否清除已有索引
         task_id: 任务 ID（用于分布式锁）
     
     Returns:
@@ -496,21 +478,21 @@ def index_course(
     langfuse_client, trace, start_time = _create_trace("index_course", ["task", "rag", "index", "batch"])
     
     input_data = {
-        "course_id": course_id,
+        "code": code,
         "chapter_count": len(chapters),
     }
     
     if trace:
         trace.update(input=input_data)
     
-    logger.info(f"开始批量索引课程: course={course_id}, chapters={len(chapters)}")
+    logger.info(f"开始批量索引课程: code={code}, chapters={len(chapters)}")
     
     # 尝试获取课程级别的分布式锁
     lock_id = task_id or str(uuid.uuid4())
-    if not acquire_course_lock(course_id, lock_id, ttl=3600):
-        logger.warning(f"课程 {course_id} 正在被其他任务处理，跳过")
+    if not acquire_course_lock(code, lock_id, ttl=3600):
+        logger.warning(f"课程 {code} 正在被其他任务处理，跳过")
         return {
-            "course_id": course_id,
+            "code": code,
             "total_chapters": 0,
             "success_count": 0,
             "failed_count": 0,
@@ -530,34 +512,40 @@ def index_course(
             try:
                 # 只在第一个章节时清除整个 collection
                 chapter_config = config.copy()
-                if first_chapter:
-                    chapter_config["clear_existing"] = config.get("clear_existing", False)
+                if first_chapter and config.get("clear_existing", False):
+                    # 清除操作在新版本中通过重建 collection 实现
+                    chapter_config["clear_existing"] = True
                     first_chapter = False
                 else:
                     chapter_config["clear_existing"] = False
                 
+                temp_ref = chapter_info.get("temp_ref") or f"{code}/{chapter_info['chapter_file']}"
+                source_file = chapter_info.get("chapter_file")
+                
                 result = index_chapter(
-                    chapter_id=chapter_info.get("temp_ref") or chapter_info.get("chapter_id"),
-                    course_id=course_id,
-                    chapter_file=chapter_info["chapter_file"],
+                    temp_ref=temp_ref,
+                    code=code,
+                    source_file=source_file,
                     config=chapter_config
                 )
                 results.append({
-                    "chapter_id": chapter_info.get("chapter_id"),
+                    "temp_ref": temp_ref,
+                    "source_file": source_file,
                     "status": "success",
                     "chunk_count": result.get("chunk_count", 0)
                 })
                 success_count += 1
             except Exception as e:
                 results.append({
-                    "chapter_id": chapter_info.get("chapter_id"),
+                    "temp_ref": chapter_info.get("temp_ref"),
+                    "source_file": chapter_info.get("chapter_file"),
                     "status": "failed",
                     "error": str(e)
                 })
                 failed_count += 1
         
         result = {
-            "course_id": course_id,
+            "code": code,
             "total_chapters": len(chapters),
             "success_count": success_count,
             "failed_count": failed_count,
@@ -565,7 +553,7 @@ def index_course(
             "created_at": datetime.utcnow().isoformat(),
         }
         
-        logger.info(f"课程批量索引完成: course={course_id}, success={success_count}, failed={failed_count}")
+        logger.info(f"课程批量索引完成: code={code}, success={success_count}, failed={failed_count}")
         
         output_data = {"success_count": success_count, "failed_count": failed_count}
         _finish_trace(langfuse_client, trace, start_time, input_data, output_data)
@@ -573,4 +561,4 @@ def index_course(
         return result
     
     finally:
-        release_course_lock(course_id, lock_id)
+        release_course_lock(code, lock_id)

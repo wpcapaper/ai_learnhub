@@ -280,11 +280,12 @@ export default function KnowledgeBasePage() {
     const course = coursesRef.current.find(c => c.id === courseId);
     if (!course) return;
     
+    const courseCode = course.code;
+    
     const statuses = await Promise.all(
       course.chapters.map(async (ch) => {
-        const tempRef = `${courseId}/${ch.file}`;
         try {
-          const res = await adminApi.getChapterKBConfigByRef(tempRef);
+          const res = await adminApi.getChapterKBConfigByRef(courseCode, ch.file);
           if (res.success && res.data) {
             return {
               file: ch.file,
@@ -323,23 +324,20 @@ export default function KnowledgeBasePage() {
     setBatchIndexing(true);
     setBatchProgress('正在加入队列...');
     
-    // course_id 使用目录名（用于找文件）
-    const courseId = selectedCourse.id;
-    // temp_ref 使用 course_code（用于唯一标识）
+    // 使用 code（课程代码/目录名）
     const courseCode = selectedCourse.code;
     
     const chapters = selectedCourse.chapters.map(ch => ({
       file: ch.file,
-      temp_ref: `${courseCode}/${ch.file}`,
-      chapter_id: ch.realChapterId
+      temp_ref: `${courseCode}/${ch.file}`
     }));
     
-    const res = await adminApi.reindexCourse(courseId, chapters, true);
+    const res = await adminApi.reindexCourse(courseCode, chapters, true);
     
     if (res.success && res.data) {
       setBatchProgress(`已加入队列，正在处理...`);
       
-      const tasks = await fetchPendingTasks(courseId);
+      const tasks = await fetchPendingTasks(courseCode);
       
       // 更新章节状态为处理中
       setCourses(prev => prev.map(c => {
@@ -724,7 +722,10 @@ function ChunksTab({
   const reindexPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadChunks = useCallback(async (resetPage = false) => {
-    if (!tempRef) return;
+    if (!courseCode || !tempRef) return;
+    
+    // 从 tempRef 中提取 source_file
+    const sourceFile = tempRef.split('/')[1] || '';
     
     if (resetPage) {
       setPage(1);
@@ -739,8 +740,8 @@ function ChunksTab({
     // 根据数据源选择不同的 API
     let res;
     if (useTempRef) {
-      // 本地分块：按 temp_ref 查询
-      res = await adminApi.getChapterChunksByRef(tempRef, { page: resetPage ? 1 : page, page_size: 10, search: searchQuery || undefined });
+      // 本地分块：使用 code 和 source_file 查询
+      res = await adminApi.getChapterChunksByRef(courseCode, sourceFile, { page: resetPage ? 1 : page, page_size: 10, search: searchQuery || undefined });
     } else if (realChapterId) {
       // 线上课程分块：按 chapter_id 查询
       res = await adminApi.getChapterChunksById(realChapterId, { page: resetPage ? 1 : page, page_size: 10, search: searchQuery || undefined });
@@ -753,7 +754,7 @@ function ChunksTab({
       setTotal(res.data.total);
     }
     setLoading(false);
-  }, [tempRef, realChapterId, useTempRef, page, searchQuery]);
+  }, [tempRef, courseCode, realChapterId, useTempRef, page, searchQuery]);
 
   // 监听 tempRef 或数据源变化，重置并加载
   useEffect(() => {
@@ -811,12 +812,13 @@ function ChunksTab({
   };
 
   const handleReindex = async () => {
-    if (!tempRef || reindexing) return;
+    if (!tempRef || !courseCode || reindexing) return;
     
     setReindexing(true);
     
-    // 本地分块才能重建索引
-    const res = await adminApi.reindexChapterByRef(tempRef);
+    // 本地分块才能重建索引，使用 code 和 source_file
+    const sourceFile = tempRef.split('/')[1] || '';
+    const res = await adminApi.reindexChapterByRef(courseCode, sourceFile);
     
     if (res.success && res.data?.task_id) {
       const taskId = res.data.task_id;
@@ -1080,7 +1082,10 @@ function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value:
     
     const res = chapterId.type === 'id'
       ? await adminApi.getChapterKBConfig(chapterId.value)
-      : await adminApi.getChapterKBConfigByRef(chapterId.value);
+      : await adminApi.getChapterKBConfigByRef(
+          chapterId.value.split('/')[0],
+          chapterId.value.split('/').slice(1).join('/')
+        );
     
     if (res.success && res.data) {
       setConfig(res.data.config);
@@ -1094,7 +1099,11 @@ function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value:
     
     const res = chapterId.type === 'id'
       ? await adminApi.updateChapterKBConfig(chapterId.value, config)
-      : await adminApi.updateChapterKBConfigByRef(chapterId.value, config);
+      : await adminApi.updateChapterKBConfigByRef(
+          chapterId.value.split('/')[0],
+          chapterId.value.split('/').slice(1).join('/'),
+          config
+        );
     
     if (res.success) {
       showToast('success', '配置已保存');
@@ -1253,14 +1262,16 @@ function TestTab({
     if (!query.trim()) return;
     if (!tempRef && useTempRef) return;
     if (!realChapterId && !useTempRef) return;
+    if (!courseCode && useTempRef) return;
     
     setLoading(true);
     
     // 根据数据源选择 API
     let res;
     if (useTempRef) {
-      // 本地分块：按 temp_ref 召回
-      res = await adminApi.testChapterRetrievalByRef(tempRef, query, { top_k: topK, score_threshold: scoreThreshold });
+      // 本地分块：使用 code 和 source_file 召回
+      const sourceFile = tempRef.split('/')[1] || '';
+      res = await adminApi.testChapterRetrievalByRef(courseCode!, sourceFile, query, { top_k: topK, score_threshold: scoreThreshold });
     } else {
       // 线上课程分块：按 chapter_id 召回
       res = await adminApi.testChapterRetrieval(realChapterId!, query, { top_k: topK, score_threshold: scoreThreshold });

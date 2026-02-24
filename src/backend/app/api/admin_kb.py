@@ -1,15 +1,10 @@
 """
 知识库管理 API 路由
 
-提供章节级别的知识库管理功能：
-- 系统状态检测（Embedding/Rerank 是否可用）
-- 章节知识库配置管理
-- 文档块管理（通过 ChromaDB）
-- 召回测试
-
-架构说明：
-- 业务数据库：只存储 ChapterKBConfig（配置需要关联 course_id/chapter_id）
-- ChromaDB：存储所有 RAG 数据（向量 + 元数据），完全独立
+按照 RAG_ARCHITECTURE.md 规范设计：
+- 课程级 Collection：course_{code}_{kb_version}
+- Metadata 字段：code, source_file, position, char_start, char_end, content_type, char_count, estimated_tokens, kb_version
+- API 使用 code（课程目录名）作为主标识符
 """
 
 from fastapi import APIRouter, HTTPException, Depends, Query
@@ -17,17 +12,16 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pathlib import Path
-import uuid
+import json
 import time
 import logging
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models import Chapter, ChapterKBConfig
-from app.rag.service import RAGService
-from app.rag.utils import normalize_collection_name
+from app.rag.service import RAGService, get_collection_name
 from app.rag.vector_store import ChromaVectorStore
-from app.tasks import enqueue_task, get_job_status, index_chapter, index_course
+from app.tasks import enqueue_task, get_job_status, index_course
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +60,7 @@ class KBConfigResponse(BaseModel):
 
 
 class ChunkListResponse(BaseModel):
-    """文档块列表响应（从 ChromaDB 获取）"""
+    """文档块列表响应"""
     chunks: List[Dict[str, Any]]
     total: int
     page: int
@@ -80,13 +74,13 @@ class ChunkDetailResponse(BaseModel):
     content_type: str
     source_file: Optional[str] = None
     char_count: int
-    is_active: bool
     metadata: Dict[str, Any]
 
 
 class ReindexRequest(BaseModel):
     """重建索引请求"""
     clear_existing: bool = False
+    kb_version: Optional[int] = None
 
 
 class ReindexResponse(BaseModel):
@@ -108,12 +102,6 @@ class RetrievalTestResponse(BaseModel):
     """召回测试响应"""
     results: List[Dict[str, Any]]
     query_time_ms: float
-
-
-class MetadataBackfillRequest(BaseModel):
-    """元数据回填请求"""
-    course_id: str
-    chapters: List[Dict[str, str]]
 
 
 # ==================== 辅助函数 ====================
@@ -181,28 +169,22 @@ async def check_rerank_status() -> Dict[str, Any]:
 
 
 def get_or_create_kb_config(
-    db: Session, 
-    chapter_id: str = None, 
-    course_id: str = None,
-    temp_ref: str = None
+    db: Session,
+    code: str,
+    source_file: Optional[str] = None
 ) -> ChapterKBConfig:
     """获取或创建章节知识库配置"""
-    config = None
+    temp_ref = f"{code}/{source_file}" if source_file else code
     
-    if chapter_id:
-        config = db.query(ChapterKBConfig).filter(
-            ChapterKBConfig.chapter_id == chapter_id
-        ).first()
-    elif temp_ref:
-        config = db.query(ChapterKBConfig).filter(
-            ChapterKBConfig.temp_ref == temp_ref
-        ).first()
+    config = db.query(ChapterKBConfig).filter(
+        ChapterKBConfig.temp_ref == temp_ref
+    ).first()
     
     if not config:
         config = ChapterKBConfig(
             id=str(uuid.uuid4()),
-            chapter_id=chapter_id,
-            course_id=course_id,
+            course_id=None,
+            chapter_id=None,
             temp_ref=temp_ref,
             created_at=datetime.utcnow()
         )
@@ -213,19 +195,44 @@ def get_or_create_kb_config(
     return config
 
 
-def get_chapter_collection_name(chapter_id: str) -> str:
-    """获取章节对应的 ChromaDB collection 名称"""
-    return f"chapter_{chapter_id}"
+def load_course_json(code: str) -> Dict[str, Any]:
+    """加载课程的 course.json"""
+    courses_dir = Path(__file__).parent.parent.parent / "courses"
+    course_json_path = courses_dir / code / "course.json"
+    
+    if course_json_path.exists():
+        with open(course_json_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
 
-def get_chroma_store(chapter_id: str) -> ChromaVectorStore:
-    """获取章节对应的 ChromaDB 存储"""
-    rag_service = RAGService.get_instance()
-    collection_name = get_chapter_collection_name(chapter_id)
-    return ChromaVectorStore(
-        collection_name=collection_name,
-        persist_directory=rag_service.persist_directory
-    )
+def save_course_json(code: str, data: Dict[str, Any]) -> None:
+    """保存 course.json"""
+    courses_dir = Path(__file__).parent.parent.parent / "courses"
+    course_json_path = courses_dir / code / "course.json"
+    
+    with open(course_json_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_current_kb_version(code: str) -> int:
+    """获取当前知识库版本号"""
+    course_data = load_course_json(code)
+    return course_data.get("kb_version", 1)
+
+
+def increment_kb_version(code: str) -> int:
+    """递增知识库版本号并返回新版本"""
+    course_data = load_course_json(code)
+    current_version = course_data.get("kb_version", 0)
+    new_version = current_version + 1
+    course_data["kb_version"] = new_version
+    course_data["kb_updated_at"] = datetime.utcnow().isoformat()
+    save_course_json(code, course_data)
+    return new_version
+
+
+import uuid
 
 
 # ==================== 系统状态 API ====================
@@ -236,7 +243,6 @@ async def get_rag_status():
     获取 RAG 系统状态
     
     检测 Embedding 和 Rerank 模型是否可用
-    前端应根据此状态决定是否启用 RAG 功能
     """
     embedding_status = await check_embedding_status()
     rerank_status = await check_rerank_status()
@@ -248,130 +254,234 @@ async def get_rag_status():
     )
 
 
-# ==================== 章节知识库配置 API ====================
+# ==================== 课程级 API ====================
 
-@router.get("/chapters/config")
-async def get_chapter_kb_config_by_ref(
-    temp_ref: str,
-    db: Session = Depends(get_db)
+@router.get("/courses/{code}/chunks", response_model=ChunkListResponse)
+async def list_course_chunks(
+    code: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    source_file: Optional[str] = None,
+    content_type: Optional[str] = None,
+    search: Optional[str] = None,
+    kb_version: Optional[int] = None
 ):
-    config = get_or_create_kb_config(db, temp_ref=temp_ref)
+    """
+    获取课程的文档块列表
     
-    chunk_count = 0
+    Args:
+        code: 课程代码（目录名）
+        source_file: 章节文件名（可选，用于按章节过滤）
+        kb_version: 知识库版本（默认使用当前版本）
+    """
+    actual_version = kb_version or get_current_kb_version(code)
+    
     try:
-        # 从 temp_ref 提取 course_code 和 chapter_file
-        course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
-        chapter_file = temp_ref.split("/")[1] if "/" in temp_ref else None
-        
-        # 本地数据源使用 course_local_{course_code}
         rag_service = RAGService.get_instance()
-        store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_local_{course_code}"),
-            persist_directory=rag_service.persist_directory
+        all_chunks = rag_service.get_all_chunks(code, actual_version)
+        
+        # 过滤
+        filtered_chunks = []
+        for chunk in all_chunks:
+            metadata = chunk.get("metadata", {})
+            
+            # 按章节过滤
+            if source_file and metadata.get("source_file") != source_file:
+                continue
+            
+            if content_type and metadata.get("content_type") != content_type:
+                continue
+            
+            if search and search.lower() not in chunk.get("content", "").lower():
+                continue
+            
+            filtered_chunks.append({
+                "id": chunk.get("id"),
+                "content": (chunk.get("content") or "")[:200] + "..." if len(chunk.get("content") or "") > 200 else chunk.get("content"),
+                "content_type": metadata.get("content_type", "paragraph"),
+                "source_file": metadata.get("source_file"),
+                "char_count": metadata.get("char_count", len(chunk.get("content") or "")),
+                "estimated_tokens": metadata.get("estimated_tokens", 0),
+                "position": metadata.get("position", 0),
+            })
+        
+        total = len(filtered_chunks)
+        offset = (page - 1) * page_size
+        paginated_chunks = filtered_chunks[offset:offset + page_size]
+        
+        return ChunkListResponse(
+            chunks=paginated_chunks,
+            total=total,
+            page=page,
+            page_size=page_size
         )
         
-        # 按 source_file 过滤计数
-        all_chunks = store.get_all_chunks()
-        chunk_count = sum(
-            1 for chunk in all_chunks 
-            if chapter_file and chapter_file in chunk.get("metadata", {}).get("source_file", "")
+    except Exception as e:
+        logger.error(f"获取课程文档块失败: {e}")
+        return ChunkListResponse(
+            chunks=[],
+            total=0,
+            page=page,
+            page_size=page_size
         )
-    except Exception:
-        pass
+
+
+@router.get("/chunks/{chunk_id}", response_model=ChunkDetailResponse)
+async def get_chunk_detail(
+    chunk_id: str,
+    code: str = Query(..., description="课程代码"),
+    kb_version: Optional[int] = None
+):
+    """获取单个文档块详情"""
+    actual_version = kb_version or get_current_kb_version(code)
     
-    return KBConfigResponse(
-        config=config.to_dict(),
-        stats={
-            "chunk_count": chunk_count,
-            "graph_entity_count": config.graph_entity_count,
-            "graph_relation_count": config.graph_relation_count,
-            "index_status": config.index_status,
-            "indexed_at": config.indexed_at.isoformat() if config.indexed_at else None,
-            "metadata_backfilled": config.metadata_backfilled
-        }
-    )
+    try:
+        rag_service = RAGService.get_instance()
+        vector_store = rag_service._get_vector_store(code, actual_version)
+        
+        chunk_data = vector_store.get_chunk_by_id(chunk_id)
+        
+        if not chunk_data:
+            raise HTTPException(status_code=404, detail="文档块不存在")
+        
+        metadata = chunk_data.get("metadata", {})
+        
+        return ChunkDetailResponse(
+            id=chunk_id,
+            content=chunk_data.get("text", ""),
+            content_type=metadata.get("content_type", "paragraph"),
+            source_file=metadata.get("source_file"),
+            char_count=len(chunk_data.get("text", "")),
+            metadata=metadata
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取文档块失败: {str(e)}")
 
 
-@router.put("/chapters/config")
-async def update_chapter_kb_config_by_ref(
-    temp_ref: str,
-    update: KBConfigUpdate,
+@router.post("/courses/reindex", response_model=ReindexResponse)
+async def reindex_course(
+    code: str = Query(..., description="课程代码"),
+    chapters: List[Dict[str, str]] = [],
+    request: ReindexRequest = ReindexRequest(),
     db: Session = Depends(get_db)
 ):
-    config = get_or_create_kb_config(db, temp_ref=temp_ref)
+    """
+    批量索引课程下所有章节
     
-    update_fields = {
-        'chunking_strategy': update.chunking_strategy,
-        'chunk_size': update.chunk_size,
-        'chunk_overlap': update.chunk_overlap,
-        'min_chunk_size': update.min_chunk_size,
-        'code_block_strategy': update.code_block_strategy,
-        'code_summary_threshold': update.code_summary_threshold,
-        'retrieval_mode': update.retrieval_mode,
-        'default_top_k': update.default_top_k,
-        'score_threshold': update.score_threshold,
-        'enable_graph_extraction': update.enable_graph_extraction,
-        'graph_entity_types': update.graph_entity_types,
-        'graph_relation_types': update.graph_relation_types,
-    }
-    
-    for field, value in update_fields.items():
-        if value is not None:
-            setattr(config, field, value)
-    
-    config.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(config)
-    
-    return {"message": "配置已更新", "config": config.to_dict()}
-
-
-@router.post("/chapters/reindex", response_model=ReindexResponse)
-async def reindex_chapter_by_ref(
-    temp_ref: str,
-    request: ReindexRequest,
-    db: Session = Depends(get_db)
-):
+    Args:
+        code: 课程代码（目录名）
+        chapters: 章节列表，格式 [{"file": "01_intro.md"}, ...]
+        request: 索引请求配置
+    """
     embedding_status = await check_embedding_status()
     if not embedding_status["available"]:
-        raise HTTPException(status_code=503, detail="Embedding 服务不可用，无法重建索引")
+        raise HTTPException(status_code=503, detail="Embedding 服务不可用")
     
-    config = get_or_create_kb_config(db, temp_ref=temp_ref)
-    config.index_status = "pending"
-    config.index_error = None
-    db.commit()
+    # 确定版本号
+    if request.kb_version:
+        new_version = request.kb_version
+    elif request.clear_existing:
+        new_version = 1
+    else:
+        new_version = increment_kb_version(code)
     
-    course_dir = temp_ref.split("/")[0]
-    chapter_file = "/".join(temp_ref.split("/")[1:])
+    # 更新章节配置状态
+    for ch in chapters:
+        temp_ref = f"{code}/{ch['file']}"
+        config = get_or_create_kb_config(db, code, ch["file"])
+        config.index_status = "pending"
+        config.index_error = None
+        db.commit()
+    
+    # 构建任务参数
+    chapter_list = [
+        {
+            "temp_ref": f"{code}/{ch['file']}",
+            "chapter_file": ch["file"]
+        }
+        for ch in chapters
+    ]
     
     job_config = {
-        "chunking_strategy": config.chunking_strategy,
-        "chunk_size": config.chunk_size,
-        "chunk_overlap": config.chunk_overlap,
-        "min_chunk_size": config.min_chunk_size,
-        "code_block_strategy": config.code_block_strategy,
-        "clear_existing": request.clear_existing
+        "clear_existing": request.clear_existing,
+        "kb_version": new_version
     }
     
     try:
         job_id = enqueue_task(
+            index_course,
+            code,
+            chapter_list,
+            job_config,
+            queue_name="indexing",
+            timeout=3600
+        )
+        
+        # 更新任务ID
+        for ch in chapter_list:
+            config = get_or_create_kb_config(db, code, ch["chapter_file"])
+            config.current_task_id = job_id
+        db.commit()
+        
+        return ReindexResponse(
+            task_id=job_id,
+            status="queued",
+            message=f"已将 {len(chapters)} 个章节加入索引队列，版本 {new_version}"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"任务入队失败: {str(e)}")
+
+
+@router.post("/chapters/reindex", response_model=ReindexResponse)
+async def reindex_chapter(
+    code: str = Query(..., description="课程代码"),
+    source_file: str = Query(..., description="章节文件名"),
+    request: ReindexRequest = ReindexRequest(),
+    db: Session = Depends(get_db)
+):
+    """
+    重建单个章节的索引
+    """
+    embedding_status = await check_embedding_status()
+    if not embedding_status["available"]:
+        raise HTTPException(status_code=503, detail="Embedding 服务不可用")
+    
+    temp_ref = f"{code}/{source_file}"
+    config = get_or_create_kb_config(db, code, source_file)
+    config.index_status = "pending"
+    config.index_error = None
+    db.commit()
+    
+    # 确定版本号
+    new_version = request.kb_version or get_current_kb_version(code)
+    
+    job_config = {
+        "clear_existing": False,  # 单章节不清除整个 collection
+        "kb_version": new_version
+    }
+    
+    try:
+        from app.tasks import index_chapter
+        job_id = enqueue_task(
             index_chapter,
             temp_ref,
-            course_dir,
-            chapter_file,
+            code,
+            source_file,
             job_config,
             queue_name="indexing",
             timeout=600
         )
         
-        if job_id:
-            config.current_task_id = job_id
-            db.commit()
+        config.current_task_id = job_id
+        db.commit()
         
         return ReindexResponse(
-            task_id=job_id or temp_ref,
+            task_id=job_id,
             status="queued",
-            message="索引任务已加入队列"
+            message=f"章节索引任务已加入队列"
         )
     except Exception as e:
         config.index_status = "failed"
@@ -380,127 +490,14 @@ async def reindex_chapter_by_ref(
         raise HTTPException(status_code=500, detail=f"任务入队失败: {str(e)}")
 
 
-@router.post("/courses/reindex")
-async def reindex_course(
-    course_id: str,
-    chapters: List[Dict[str, str]],
-    clear_existing: bool = False,
-    force: bool = Query(False, description="强制重新执行，取消已有任务"),
-    db: Session = Depends(get_db)
-):
-    """
-    批量索引课程下所有章节
-    
-    Args:
-        course_id: 课程 ID（目录名）
-        chapters: 章节列表，格式 [{"file": "01_intro.md", "temp_ref": "..."}]
-        clear_existing: 是否清除已有索引
-        force: 是否强制重新执行（取消已有任务）
-    """
-    embedding_status = await check_embedding_status()
-    if not embedding_status["available"]:
-        raise HTTPException(status_code=503, detail="Embedding 服务不可用")
-    
-    # 检查是否有正在执行的任务
-    running_tasks = []
-    for ch in chapters:
-        temp_ref = ch.get("temp_ref") or f"{course_id}/{ch['file']}"
-        config = get_or_create_kb_config(db, temp_ref=temp_ref)
-        
-        if config.current_task_id:
-            job_status = get_job_status(config.current_task_id)
-            if job_status:
-                status = job_status.get("status")
-                if status in ("queued", "started"):
-                    running_tasks.append({
-                        "temp_ref": temp_ref,
-                        "task_id": config.current_task_id,
-                        "status": status
-                    })
-    
-    if running_tasks and not force:
-        raise HTTPException(
-            status_code=409, 
-            detail={
-                "message": "有任务正在执行中，请等待完成或使用 force=true 强制重新执行",
-                "running_tasks": running_tasks
-            }
-        )
-    
-    # 如果强制执行，清除已有任务的 task_id
-    if running_tasks and force:
-        for task in running_tasks:
-            config = db.query(ChapterKBConfig).filter(
-                ChapterKBConfig.temp_ref == task["temp_ref"]
-            ).first()
-            if config:
-                config.current_task_id = None
-                config.index_status = "not_indexed"
-        db.commit()
-    
-    chapter_list = []
-    for ch in chapters:
-        temp_ref = ch.get("temp_ref") or f"{course_id}/{ch['file']}"
-        
-        config = get_or_create_kb_config(db, temp_ref=temp_ref)
-        config.index_status = "pending"
-        config.index_error = None
-        db.commit()
-        
-        chapter_list.append({
-            "chapter_id": ch.get("chapter_id"),
-            "temp_ref": temp_ref,
-            "chapter_file": ch["file"]
-        })
-    
-    try:
-        job_id = enqueue_task(
-            index_course,
-            course_id,
-            chapter_list,
-            {"clear_existing": clear_existing},
-            queue_name="indexing",
-            timeout=3600
-        )
-        
-        # 将任务ID存储到每个章节的配置中，用于追踪进度
-        for ch in chapter_list:
-            config = get_or_create_kb_config(db, temp_ref=ch["temp_ref"])
-            config.current_task_id = job_id
-        db.commit()
-        
-        return {
-            "task_id": job_id,
-            "status": "queued",
-            "message": f"已将 {len(chapters)} 个章节加入索引队列"
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"任务入队失败: {str(e)}")
-
-
-@router.get("/courses/{course_id}/pending-tasks")
+@router.get("/courses/{code}/pending-tasks")
 async def get_course_pending_tasks(
-    course_id: str,
+    code: str,
     db: Session = Depends(get_db)
 ):
-    """
-    获取课程下所有进行中的索引任务
-    
-    返回格式:
-    {
-        "tasks": [
-            {
-                "task_id": "xxx",
-                "temp_ref": "course_id/chapter_file",
-                "chapter_title": "章节标题",
-                "status": "queued|started|finished|failed",
-                "error": null
-            }
-        ]
-    }
-    """
+    """获取课程下所有进行中的索引任务"""
     configs = db.query(ChapterKBConfig).filter(
-        ChapterKBConfig.temp_ref.like(f"{course_id}/%"),
+        ChapterKBConfig.temp_ref.like(f"{code}/%"),
         ChapterKBConfig.index_status.in_(["pending", "indexing"]),
         ChapterKBConfig.current_task_id.isnot(None)
     ).all()
@@ -535,253 +532,51 @@ async def get_task_status(task_id: str):
     return status
 
 
-@router.get("/chapters/chunks", response_model=ChunkListResponse)
-async def list_chapter_chunks_by_ref(
-    temp_ref: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    content_type: Optional[str] = None,
-    search: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
-    chapter_file = temp_ref.split("/")[1] if "/" in temp_ref else None
-    
-    try:
-        rag_service = RAGService.get_instance()
-        store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_local_{course_code}"),
-            persist_directory=rag_service.persist_directory
-        )
-        all_chunks = store.get_all_chunks()
-        
-        filtered_chunks = []
-        for chunk in all_chunks:
-            metadata = chunk.get("metadata", {})
-            
-            # 按章节文件过滤（使用 source_file 字段）
-            source_file = metadata.get("source_file", "")
-            if chapter_file and chapter_file not in source_file:
-                continue
-            
-            if content_type and metadata.get("content_type") != content_type:
-                continue
-            if search and search.lower() not in chunk.get("content", "").lower():
-                continue
-            
-            filtered_chunks.append({
-                "id": chunk.get("id"),
-                "content": chunk.get("content", "")[:200] + "..." if len(chunk.get("content", "")) > 200 else chunk.get("content", ""),
-                "content_type": metadata.get("content_type", "text"),
-                "source_file": metadata.get("source_file"),
-                "char_count": metadata.get("char_count", len(chunk.get("content", ""))),
-                "estimated_tokens": metadata.get("estimated_tokens", 0),
-                "token_level": metadata.get("token_level", "normal"),
-                "is_active": metadata.get("is_active", True),
-            })
-        
-        total = len(filtered_chunks)
-        offset = (page - 1) * page_size
-        paginated_chunks = filtered_chunks[offset:offset + page_size]
-        
-        return ChunkListResponse(
-            chunks=paginated_chunks,
-            total=total,
-            page=page,
-            page_size=page_size
-        )
-        
-    except Exception:
-        return ChunkListResponse(
-            chunks=[],
-            total=0,
-            page=page,
-            page_size=page_size
-        )
-
-
-@router.get("/chapters/{chapter_id}/chunks", response_model=ChunkListResponse)
-async def list_chapter_chunks_by_id(
-    chapter_id: str,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    content_type: Optional[str] = None,
-    search: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """
-    按章节ID（UUID）查询线上课程分块
-    
-    线上课程分块的 metadata.chapter_id = UUID
-    """
-    from app.models import Chapter, Course
-    from pathlib import Path
-    
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-    
-    course = db.query(Course).filter(Course.id == chapter.course_id).first()
-    if not course:
-        raise HTTPException(status_code=404, detail="课程不存在")
-    
-    # 查找课程目录名（用于匹配 collection）
-    courses_base_dir = Path(__file__).parent.parent.parent / "courses"
-    course_dir = None
-    for d in courses_base_dir.iterdir():
-        if d.is_dir():
-            course_json = d / "course.json"
-            if course_json.exists():
-                import json
-                data = json.loads(course_json.read_text(encoding="utf-8"))
-                if data.get("code") == course.code:
-                    course_dir = d
-                    break
-    
-    if not course_dir:
-        raise HTTPException(status_code=404, detail="课程目录不存在")
-    
-    # 获取课程目录名（用于构建 collection 名称）
-    dir_name = course_dir.name
-    
-    try:
-        rag_service = RAGService.get_instance()
-        store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_online_{dir_name}"),
-            persist_directory=rag_service.persist_directory
-        )
-        all_chunks = store.get_all_chunks()
-        
-        filtered_chunks = []
-        for chunk in all_chunks:
-            metadata = chunk.get("metadata", {})
-            
-            # 使用 db_chapter_id 字段过滤
-            if metadata.get("db_chapter_id") != chapter_id:
-                continue
-            
-            if content_type and metadata.get("content_type") != content_type:
-                continue
-            if search and search.lower() not in chunk.get("content", "").lower():
-                continue
-            
-            filtered_chunks.append({
-                "id": chunk.get("id"),
-                "content": chunk.get("content", "")[:200] + "..." if len(chunk.get("content", "")) > 200 else chunk.get("content", ""),
-                "content_type": metadata.get("content_type", "text"),
-                "source_file": metadata.get("source_file"),
-                "char_count": metadata.get("char_count", len(chunk.get("content", ""))),
-                "estimated_tokens": metadata.get("estimated_tokens", 0),
-                "token_level": metadata.get("token_level", "normal"),
-                "is_active": metadata.get("is_active", True),
-            })
-        
-        total = len(filtered_chunks)
-        offset = (page - 1) * page_size
-        paginated_chunks = filtered_chunks[offset:offset + page_size]
-        
-        return ChunkListResponse(
-            chunks=paginated_chunks,
-            total=total,
-            page=page,
-            page_size=page_size
-        )
-    
-    except Exception:
-        return ChunkListResponse(
-            chunks=[],
-            total=0,
-            page=page,
-            page_size=page_size
-        )
-
-
-@router.get("/chunks/{chunk_id}", response_model=ChunkDetailResponse)
-async def get_chunk_detail(
-    chunk_id: str,
-    course_id: str = Query(..., description="课程ID"),
-    db: Session = Depends(get_db)
-):
-    """获取单个文档块详情"""
-    try:
-        rag_service = RAGService.get_instance()
-        store = ChromaVectorStore(
-            collection_name=normalize_collection_name(f"course_{course_id}"),
-            persist_directory=rag_service.persist_directory
-        )
-        
-        chunk_data = store.get_chunk_by_id(chunk_id)
-        
-        if not chunk_data:
-            raise HTTPException(status_code=404, detail="文档块不存在")
-        
-        metadata = chunk_data.get("metadata", {})
-        
-        return ChunkDetailResponse(
-            id=chunk_id,
-            content=chunk_data.get("text", ""),
-            content_type=metadata.get("content_type", "text"),
-            source_file=metadata.get("source_file"),
-            char_count=len(chunk_data.get("text", "")),
-            is_active=metadata.get("is_active", True),
-            metadata=metadata
-        )
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"获取文档块失败: {str(e)}")
-
-
 @router.post("/chapters/test-retrieval", response_model=RetrievalTestResponse)
-async def test_retrieval_by_ref(
-    temp_ref: str,
+async def test_retrieval(
     request: RetrievalTestRequest,
-    db: Session = Depends(get_db)
+    code: str = Query(..., description="课程代码"),
+    source_file: Optional[str] = Query(None, description="章节文件路径"),
+    kb_version: Optional[int] = Query(None, description="知识库版本")
 ):
+    """召回测试"""
     embedding_status = await check_embedding_status()
     if not embedding_status["available"]:
         raise HTTPException(status_code=503, detail="Embedding 服务不可用")
     
-    config = get_or_create_kb_config(db, temp_ref=temp_ref)
-    
-    if config.index_status != "indexed":
-        raise HTTPException(status_code=400, detail="章节尚未建立索引")
+    actual_version = kb_version or get_current_kb_version(code)
     
     start_time = time.time()
     
-    course_code = temp_ref.split("/")[0] if "/" in temp_ref else temp_ref
-    
     rag_service = RAGService.get_instance()
     
-    store = ChromaVectorStore(
-        collection_name=normalize_collection_name(f"course_local_{course_code}"),
-        persist_directory=rag_service.persist_directory
+    # 构建过滤器
+    filters = None
+    if source_file:
+        filters = {"source_file": source_file}
+    
+    top_k = request.top_k or 5
+    score_threshold = request.score_threshold or 0.0
+    
+    results = await rag_service.retrieve(
+        query=request.query,
+        code=code,
+        kb_version=actual_version,
+        top_k=top_k,
+        filters=filters,
+        score_threshold=score_threshold
     )
-    
-    query_embedding = rag_service.embedding_model.encode([request.query])[0]
-    
-    top_k = request.top_k or config.default_top_k
-    score_threshold = request.score_threshold if request.score_threshold is not None else config.score_threshold
-    
-    results = store.search(
-        query_embedding=query_embedding,
-        top_k=top_k
-    )
-    
-    if score_threshold > 0:
-        results = [r for r in results if r["score"] >= score_threshold]
     
     query_time_ms = (time.time() - start_time) * 1000
     
     formatted_results = []
     for r in results:
-        text = r.get("text", "") or ""
+        text = r.text or ""
         formatted_results.append({
-            "chunk_id": r["id"],
+            "chunk_id": r.chunk_id,
             "content": text[:500] + "..." if len(text) > 500 else text,
-            "score": r.get("score", 0),
-            "source": r.get("metadata", {}).get("source_file", "未知来源")
+            "score": r.score,
+            "source": r.metadata.get("source_file", "未知来源")
         })
     
     return RetrievalTestResponse(
@@ -790,23 +585,23 @@ async def test_retrieval_by_ref(
     )
 
 
-@router.get("/chapters/{chapter_id}/config", response_model=KBConfigResponse)
+# ==================== 配置管理 API ====================
+
+@router.get("/chapters/config")
 async def get_chapter_kb_config(
-    chapter_id: str,
+    code: str,
+    source_file: str,
     db: Session = Depends(get_db)
 ):
     """获取章节知识库配置"""
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
+    config = get_or_create_kb_config(db, code, source_file)
     
-    config = get_or_create_kb_config(db, chapter_id=chapter_id, course_id=chapter.course_id)
-    
-    # 从 ChromaDB 获取实际统计
+    # 从 ChromaDB 获取统计
     chunk_count = 0
     try:
-        store = get_chroma_store(chapter_id)
-        chunk_count = store.get_collection_size()
+        rag_service = RAGService.get_instance()
+        kb_version = get_current_kb_version(code)
+        chunk_count = rag_service.get_collection_size(code, kb_version)
     except Exception:
         pass
     
@@ -823,20 +618,16 @@ async def get_chapter_kb_config(
     )
 
 
-@router.put("/chapters/{chapter_id}/config")
+@router.put("/chapters/config")
 async def update_chapter_kb_config(
-    chapter_id: str,
+    code: str,
+    source_file: str,
     update: KBConfigUpdate,
     db: Session = Depends(get_db)
 ):
     """更新章节知识库配置"""
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
+    config = get_or_create_kb_config(db, code, source_file)
     
-    config = get_or_create_kb_config(db, chapter_id=chapter_id, course_id=chapter.course_id)
-    
-    # 更新配置字段
     update_fields = {
         'chunking_strategy': update.chunking_strategy,
         'chunk_size': update.chunk_size,
@@ -863,195 +654,28 @@ async def update_chapter_kb_config(
     return {"message": "配置已更新", "config": config.to_dict()}
 
 
-@router.post("/chapters/{chapter_id}/reindex", response_model=ReindexResponse)
-async def reindex_chapter(
-    chapter_id: str,
-    request: ReindexRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    重建章节索引
-    
-    根据章节配置重新切分文档并生成向量索引
-    所有数据存储在 ChromaDB，与业务数据库完全解耦
-    """
-    # 检查Embedding是否可用
-    embedding_status = await check_embedding_status()
-    if not embedding_status["available"]:
-        raise HTTPException(status_code=503, detail="Embedding 服务不可用，无法重建索引")
-    
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
-    
-    config = get_or_create_kb_config(db, chapter_id=chapter_id, course_id=chapter.course_id)
-    
-    # 更新状态为索引中
-    config.index_status = "indexing"
-    config.index_error = None
-    db.commit()
-    
-    task_id = str(uuid.uuid4())[:8]
-    
-    try:
-        # 获取章节内容
-        content = chapter.content_markdown
-        if not content:
-            raise ValueError("章节内容为空")
-        
-        # 初始化RAG服务
-        rag_service = RAGService.get_instance()
-        
-        # 根据配置调整切分策略
-        if config.chunking_strategy == "semantic":
-            from app.rag.chunking import SemanticChunkingStrategy
-            rag_service.chunking_strategy = SemanticChunkingStrategy(
-                min_chunk_size=config.min_chunk_size,
-                max_chunk_size=config.chunk_size,
-                overlap_size=config.chunk_overlap
-            )
-        
-        # 清除旧索引（在 ChromaDB 中）
-        if request.clear_existing:
-            try:
-                store = get_chroma_store(chapter_id)
-                store.delete_collection()
-            except Exception:
-                pass
-        
-        # 执行索引（数据存入 ChromaDB）
-        chunk_count = await rag_service.index_course_content(
-            content=content,
-            course_id=chapter.course_id,
-            chapter_id=chapter_id,
-            chapter_title=chapter.title,
-            clear_existing=request.clear_existing
-        )
-        
-        # 更新配置状态（业务数据库只存状态）
-        config.index_status = "indexed"
-        config.chunk_count = chunk_count
-        config.indexed_at = datetime.utcnow()
-        config.metadata_backfilled = True
-        config.updated_at = datetime.utcnow()
-        db.commit()
-        
-        return ReindexResponse(
-            task_id=task_id,
-            status="completed",
-            message=f"索引完成，共 {chunk_count} 个文档块（存储在 ChromaDB）"
-        )
-        
-    except Exception as e:
-        # 记录错误
-        config.index_status = "failed"
-        config.index_error = str(e)
-        config.updated_at = datetime.utcnow()
-        db.commit()
-        
-        raise HTTPException(status_code=500, detail=f"索引失败: {str(e)}")
+# ==================== 课程信息 API ====================
 
-
-
-
-
-# ==================== 召回测试 API ====================
-
-@router.post("/chapters/{chapter_id}/test-retrieval", response_model=RetrievalTestResponse)
-async def test_retrieval(
-    chapter_id: str,
-    request: RetrievalTestRequest,
-    db: Session = Depends(get_db)
-):
-    """召回测试"""
-    # 检查Embedding是否可用
-    embedding_status = await check_embedding_status()
-    if not embedding_status["available"]:
-        raise HTTPException(status_code=503, detail="Embedding 服务不可用")
+@router.get("/courses")
+async def list_kb_courses():
+    """列出所有可用于知识库管理的课程"""
+    courses_dir = Path(__file__).parent.parent.parent / "courses"
     
-    chapter = db.query(Chapter).filter(Chapter.id == chapter_id).first()
-    if not chapter:
-        raise HTTPException(status_code=404, detail="章节不存在")
+    if not courses_dir.exists():
+        return {"courses": []}
     
-    config = get_or_create_kb_config(db, chapter_id=chapter_id, course_id=chapter.course_id)
+    courses = []
+    for course_dir in courses_dir.iterdir():
+        if course_dir.is_dir():
+            course_json = course_dir / "course.json"
+            if course_json.exists():
+                with open(course_json, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    courses.append({
+                        "code": data.get("code", course_dir.name),
+                        "title": data.get("title", course_dir.name),
+                        "kb_version": data.get("kb_version", 1),
+                        "chapters": data.get("chapters", [])
+                    })
     
-    if config.index_status != "indexed":
-        raise HTTPException(status_code=400, detail="章节尚未建立索引")
-    
-    start_time = time.time()
-    
-    # 执行检索
-    rag_service = RAGService.get_instance()
-    
-    top_k = request.top_k or config.default_top_k
-    retrieval_mode = request.retrieval_mode or config.retrieval_mode
-    score_threshold = request.score_threshold if request.score_threshold is not None else config.score_threshold
-    
-    results = await rag_service.retrieve(
-        query=request.query,
-        course_id=chapter.course_id,
-        top_k=top_k,
-        mode=retrieval_mode,
-        score_threshold=score_threshold
-    )
-    
-    query_time_ms = (time.time() - start_time) * 1000
-    
-    # 格式化结果
-    formatted_results = []
-    for r in results:
-        formatted_results.append({
-            "chunk_id": r.chunk_id,
-            "content": r.text[:500] + "..." if len(r.text) > 500 else r.text,
-            "full_content": r.text,
-            "score": r.score,
-            "source": r.source
-        })
-    
-    return RetrievalTestResponse(
-        results=formatted_results,
-        query_time_ms=query_time_ms
-    )
-
-
-# ==================== 元数据回填 API ====================
-
-@router.post("/backfill-metadata")
-async def backfill_metadata(
-    request: MetadataBackfillRequest,
-    db: Session = Depends(get_db)
-):
-    """
-    批量回填元数据
-    
-    在课程导入时调用，将 course_id/chapter_id 回填到配置
-    注意：ChromaDB 中的元数据需要单独更新（如果需要）
-    """
-    backfilled_count = 0
-    
-    for chapter_info in request.chapters:
-        chapter_id = chapter_info.get("chapter_id")
-        temp_ref = chapter_info.get("temp_ref")
-        
-        if not chapter_id or not temp_ref:
-            continue
-        
-        # 查找待回填的配置
-        configs = db.query(ChapterKBConfig).filter(
-            ChapterKBConfig.temp_ref == temp_ref,
-            ChapterKBConfig.metadata_backfilled.is_(False)
-        ).all()
-        
-        for config in configs:
-            config.course_id = request.course_id
-            config.chapter_id = chapter_id
-            config.metadata_backfilled = True
-            backfilled_count += 1
-    
-    db.commit()
-    
-    return {
-        "message": "元数据回填完成",
-        "backfilled_count": backfilled_count,
-        "note": "ChromaDB 中的向量元数据是独立的，如需更新请重建索引"
-    }
+    return {"courses": courses}
