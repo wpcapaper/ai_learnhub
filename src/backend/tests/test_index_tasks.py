@@ -23,7 +23,6 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from unittest.mock import MagicMock, patch, AsyncMock
 import tempfile
 
-from conftest import MockChromaVectorStore, MockEmbeddingModel, MockRAGService
 
 
 # 模块级别的 mock，避免导入 chromadb
@@ -42,121 +41,58 @@ class TestIndexChapter:
     
     def test_index_chapter_basic(self, tmp_path):
         """基本章节索引"""
-        # Create course dir structure matching jobs.py expectations
-        # jobs.py does: Path(__file__).parent.parent.parent / "courses"
-        # So we need to create the structure accordingly
-        courses_dir = tmp_path / "courses" / "test_course"
-        courses_dir.mkdir(parents=True)
-        
-        chapter_file = courses_dir / "ch01.md"
+        chapter_file = tmp_path / "ch01.md"
         chapter_file.write_text("# 测试章节\n\n这是测试内容。" * 50)
-        
-        mock_store = MagicMock()
-        mock_store.get_legacy_chunk_ids.return_value = []
         
         with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
             with patch('app.tasks.jobs.RAGService') as MockRAGService:
                 mock_service = MagicMock()
-                mock_service.persist_directory = str(tmp_path / "chroma")
                 mock_service.index_course_content = AsyncMock(return_value=5)
                 MockRAGService.get_instance.return_value = mock_service
                 
-                with patch('app.tasks.jobs.ChromaVectorStore', return_value=mock_store):
-                    with patch('app.tasks.jobs.SessionLocal') as MockSession:
-                        mock_db = MagicMock()
-                        mock_db.query.return_value.filter.return_value.first.return_value = None
-                        MockSession.return_value = mock_db
+                with patch('app.tasks.jobs.SessionLocal') as MockSession:
+                    mock_db = MagicMock()
+                    mock_db.query.return_value.filter.return_value.first.return_value = None
+                    MockSession.return_value = mock_db
+                    
+                    with patch('app.tasks.jobs.get_chapter_path', return_value=chapter_file):
+                        from app.tasks.jobs import index_chapter
                         
-                        # Patch __file__ in the jobs module to point to our temp structure
-                        with patch('app.tasks.jobs.__file__', str(tmp_path / "app" / "tasks" / "jobs.py")):
-                            # Create fake jobs.py location structure
-                            fake_app_dir = tmp_path / "app" / "tasks"
-                            fake_app_dir.mkdir(parents=True)
-                            
-                            # Link/copy courses dir to expected location
-                            import shutil
-                            dest_courses = tmp_path / "app" / "courses"
-                            if dest_courses.exists():
-                                shutil.rmtree(dest_courses)
-                            shutil.copytree(tmp_path / "courses", dest_courses)
-                            
-                            from app.tasks.jobs import index_chapter
-                            
-                            result = index_chapter(
-                                chapter_id="ch01",
-                                course_id="test_course",
-                                chapter_file="ch01.md"
-                            )
+                        result = index_chapter(
+                            temp_ref="test_course/ch01.md",
+                            code="test_course",
+                            source_file="ch01.md"
+                        )
         
         assert result is not None
         assert "status" in result
     
     def test_index_chapter_file_not_found(self):
         """章节文件不存在时抛出异常"""
-        mock_store = MagicMock()
-        mock_store.get_legacy_chunk_ids.return_value = []
-        
         with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
             with patch('app.tasks.jobs.RAGService') as MockRAGService:
                 mock_service = MagicMock()
-                mock_service.persist_directory = "/tmp/chroma"
                 mock_service.index_course_content = AsyncMock(return_value=5)
                 MockRAGService.get_instance.return_value = mock_service
                 
-                with patch('app.tasks.jobs.ChromaVectorStore', return_value=mock_store):
-                    with patch('app.tasks.jobs.SessionLocal') as MockSession:
-                        mock_db = MagicMock()
-                        mock_db.query.return_value.filter.return_value.first.return_value = None
-                        MockSession.return_value = mock_db
+                with patch('app.tasks.jobs.SessionLocal') as MockSession:
+                    mock_db = MagicMock()
+                    mock_db.query.return_value.filter.return_value.first.return_value = None
+                    MockSession.return_value = mock_db
+                    
+                    with patch('app.tasks.jobs.get_chapter_path') as mock_get_path:
+                        mock_path_instance = MagicMock()
+                        mock_path_instance.exists.return_value = False
+                        mock_get_path.return_value = mock_path_instance
                         
-                        # Patch __file__ to point to a non-existent location
-                        with patch('app.tasks.jobs.__file__', '/nonexistent/path/jobs.py'):
-                            from app.tasks.jobs import index_chapter
-                            
-                            with pytest.raises(ValueError, match="章节文件不存在"):
-                                index_chapter(
-                                    chapter_id="ch01",
-                                    course_id="test_course",
-                                    chapter_file="nonexistent.md"
-                                )
-    
-    def test_index_chapter_clears_legacy_chunks(self):
-        """索引后删除旧版本 chunks"""
-        mock_store = MagicMock()
-        mock_store.get_legacy_chunk_ids.return_value = ["old_1", "old_2"]
-        mock_store.delete_chunks = MagicMock()
-        
-        with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
-            with patch('app.tasks.jobs.RAGService') as MockRAGService:
-                mock_service = MagicMock()
-                mock_service.persist_directory = "/tmp/chroma"
-                mock_service.index_course_content = AsyncMock(return_value=3)
-                MockRAGService.get_instance.return_value = mock_service
-                
-                with patch('app.tasks.jobs.ChromaVectorStore', return_value=mock_store):
-                    with patch('app.tasks.jobs.SessionLocal') as MockSession:
-                        mock_db = MagicMock()
-                        mock_db.query.return_value.filter.return_value.first.return_value = None
-                        MockSession.return_value = mock_db
+                        from app.tasks.jobs import index_chapter
                         
-                        with patch('pathlib.Path') as MockPath:
-                            mock_path_instance = MagicMock()
-                            mock_path_instance.exists.return_value = True
-                            mock_path_instance.read_text.return_value = "内容"
-                            mock_path_instance.__truediv__ = lambda self, x: mock_path_instance
-                            MockPath.return_value = mock_path_instance
-                            MockPath.__truediv__ = lambda self, x: mock_path_instance
-                            
-                            with patch('asyncio.run', return_value=3):
-                                from app.tasks.jobs import index_chapter
-                                
-                                result = index_chapter(
-                                    chapter_id="ch01",
-                                    course_id="test_course",
-                                    chapter_file="ch01.md"
-                                )
-        
-        mock_store.delete_chunks.assert_called_once_with(["old_1", "old_2"])
+                        with pytest.raises(ValueError, match="章节文件不存在"):
+                            index_chapter(
+                                temp_ref="test_course/nonexistent.md",
+                                code="test_course",
+                                source_file="nonexistent.md"
+                            )
 
 
 class TestIndexCourse:
@@ -178,7 +114,7 @@ class TestIndexCourse:
                         from app.tasks.jobs import index_course
                         
                         result = index_course(
-                            course_id="test_course",
+                            code="test_course",
                             chapters=chapters
                         )
         
@@ -192,7 +128,7 @@ class TestIndexCourse:
                 from app.tasks.jobs import index_course
                 
                 result = index_course(
-                    course_id="locked_course",
+                    code="locked_course",
                     chapters=[{"chapter_id": "ch1", "chapter_file": "ch01.md"}]
                 )
         
@@ -222,7 +158,7 @@ class TestIndexCourse:
                         from app.tasks.jobs import index_course
                         
                         result = index_course(
-                            course_id="test_course",
+                            code="test_course",
                             chapters=chapters
                         )
         
@@ -249,7 +185,7 @@ class TestIndexCourse:
                         from app.tasks.jobs import index_course
                         
                         index_course(
-                            course_id="test_course",
+                            code="test_course",
                             chapters=chapters,
                             config={"clear_existing": True}
                         )
@@ -264,34 +200,58 @@ class TestGenerateWordcloud:
     def test_generate_wordcloud_basic(self):
         """基本词云生成"""
         with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
-            from app.tasks.jobs import generate_wordcloud
-            
-            result = generate_wordcloud(
-                chapter_id="ch01",
-                course_id="test_course"
-            )
+            with patch('app.services.wordcloud_service.WordcloudService') as MockService:
+                mock_service = MagicMock()
+                mock_service.generate_course_wordcloud.return_value = {
+                    "words": ["a", "b"],
+                    "generated_at": "now"
+                }
+                MockService.return_value = mock_service
+                
+                with patch.dict(os.environ, {"MARKDOWN_COURSES_DIR": str(tempfile.mkdtemp())}):
+                    courses_dir = Path(os.environ["MARKDOWN_COURSES_DIR"]) / "test_course"
+                    courses_dir.mkdir(parents=True)
+                    
+                    from app.tasks.jobs import generate_wordcloud
+                    
+                    result = generate_wordcloud(
+                        course_code="test_course"
+                    )
         
-        assert "image_url" in result
-        assert "created_at" in result
+        assert result["words_count"] == 2
+        assert "generated_at" in result
     
     def test_generate_wordcloud_with_config(self):
         """带配置的词云生成"""
         with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
-            from app.tasks.jobs import generate_wordcloud
-            
-            config = {
-                "width": 1024,
-                "height": 768,
-                "max_words": 200
-            }
-            
-            result = generate_wordcloud(
-                chapter_id="ch01",
-                course_id="test_course",
-                config=config
-            )
+            with patch('app.services.wordcloud_service.WordcloudService') as MockService:
+                mock_service = MagicMock()
+                mock_service.generate_chapter_wordcloud.return_value = {
+                    "words": ["a"],
+                    "generated_at": "now"
+                }
+                MockService.return_value = mock_service
+                
+                with patch.dict(os.environ, {"MARKDOWN_COURSES_DIR": str(tempfile.mkdtemp())}):
+                    courses_dir = Path(os.environ["MARKDOWN_COURSES_DIR"]) / "test_course"
+                    courses_dir.mkdir(parents=True)
+                    (courses_dir / "ch01.md").write_text("content")
+                    
+                    from app.tasks.jobs import generate_wordcloud
+                    
+                    config = {
+                        "width": 1024,
+                        "height": 768,
+                        "max_words": 200
+                    }
+                    
+                    result = generate_wordcloud(
+                        course_code="test_course",
+                        chapter_file="ch01",
+                        config=config
+                    )
         
-        assert result["config"]["width"] == 1024
+        assert result["course_code"] == "test_course"
 
 
 class TestGenerateKnowledgeGraph:
@@ -380,33 +340,26 @@ class TestDatabaseUpdate:
         mock_db = MagicMock()
         mock_db.query.return_value.filter.return_value.first.return_value = mock_kb_config
         
-        mock_store = MagicMock()
-        mock_store.get_legacy_chunk_ids.return_value = []
-        
         with patch('app.llm.langfuse_wrapper._get_langfuse_client', return_value=None):
             with patch('app.tasks.jobs.RAGService') as MockRAGService:
                 mock_service = MagicMock()
-                mock_service.persist_directory = "/tmp/chroma"
+                mock_service.index_course_content = AsyncMock(return_value=5)
                 MockRAGService.get_instance.return_value = mock_service
                 
-                with patch('app.tasks.jobs.ChromaVectorStore', return_value=mock_store):
-                    with patch('app.tasks.jobs.SessionLocal', return_value=mock_db):
-                        with patch('pathlib.Path') as MockPath:
-                            mock_path_instance = MagicMock()
-                            mock_path_instance.exists.return_value = True
-                            mock_path_instance.read_text.return_value = "内容"
-                            mock_path_instance.__truediv__ = lambda self, x: mock_path_instance
-                            MockPath.return_value = mock_path_instance
-                            MockPath.__truediv__ = lambda self, x: mock_path_instance
-                            
-                            with patch('asyncio.run', return_value=5):
-                                from app.tasks.jobs import index_chapter
-                                
-                                index_chapter(
-                                    chapter_id="temp_ref_value",
-                                    course_id="test_course",
-                                    chapter_file="ch01.md"
-                                )
+                with patch('app.tasks.jobs.SessionLocal', return_value=mock_db):
+                    with patch('app.tasks.jobs.get_chapter_path') as mock_get_path:
+                        mock_path_instance = MagicMock()
+                        mock_path_instance.exists.return_value = True
+                        mock_path_instance.read_text.return_value = "内容"
+                        mock_get_path.return_value = mock_path_instance
+                        
+                        from app.tasks.jobs import index_chapter
+                        
+                        index_chapter(
+                            temp_ref="test_course/ch01.md",
+                            code="test_course",
+                            source_file="ch01.md"
+                        )
         
         assert mock_kb_config.index_status == "indexed"
         assert mock_kb_config.chunk_count == 5
@@ -428,9 +381,9 @@ class TestDatabaseUpdate:
                     
                     with pytest.raises(Exception):
                         index_chapter(
-                            chapter_id="ch01",
-                            course_id="test_course",
-                            chapter_file="ch01.md"
+                            temp_ref="test_course/ch01.md",
+                            code="test_course",
+                            source_file="ch01.md"
                         )
         
         assert mock_kb_config.index_status == "failed"

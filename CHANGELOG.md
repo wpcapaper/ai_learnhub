@@ -37,6 +37,12 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - RAG-CE-003: RAG 工具支持章节维度召回并新增接入说明
 - RAG-CE-003: 忽略 .bak 备份文件
+
+## [TEST-ARCH-001] - 2026-02-25
+
+### Changed
+- TEST-ARCH-001: 对齐索引任务单元测试与当前任务函数签名
+- TEST-ARCH-001: 添加后端单元测试运行与覆盖链路文档
 - 清理无用的 .bak 备份文件
 
 ## [KB-ADMIN-001] - 2026-02-24
