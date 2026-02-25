@@ -7,7 +7,7 @@
 - API 使用 code（课程目录名）作为主标识符
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -18,6 +18,7 @@ import logging
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
+from app.core.admin_security import validate_chapter_name
 from app.models import Chapter, ChapterKBConfig
 from app.rag.service import RAGService, get_collection_name
 from app.rag.vector_store import ChromaVectorStore
@@ -195,20 +196,76 @@ def get_or_create_kb_config(
     return config
 
 
+def resolve_source_file(
+    code: str,
+    source_file: Optional[str],
+    chapter_name: Optional[str],
+    chapter_order: Optional[int]
+) -> str:
+    course_data = load_course_json(code)
+
+    if chapter_order is not None:
+        target_order = normalize_chapter_order(chapter_order)
+        chapters = course_data.get("chapters", [])
+        for chapter in chapters:
+            chapter_order_value = normalize_chapter_order(
+                chapter.get("sort_order", chapter.get("order"))
+            )
+            if chapter_order_value == target_order:
+                file_name = chapter.get("file", "")
+                if file_name:
+                    return file_name
+        if target_order is not None and chapters:
+            index = target_order - 1
+            if 0 <= index < len(chapters):
+                file_name = chapters[index].get("file", "")
+                if file_name:
+                    return file_name
+        raise HTTPException(status_code=404, detail="章节序号不存在")
+
+    if source_file:
+        if ".." in source_file or "/" in source_file or "\\" in source_file:
+            raise HTTPException(status_code=400, detail="章节文件名包含非法字符")
+        return source_file
+
+    if not chapter_name:
+        raise HTTPException(status_code=422, detail="缺少章节参数")
+
+    if chapter_name.endswith(".md"):
+        return chapter_name
+
+    safe_name = validate_chapter_name(chapter_name)
+    for chapter in course_data.get("chapters", []):
+        file_name = chapter.get("file", "")
+        if Path(file_name).stem == safe_name:
+            return file_name
+
+    raise HTTPException(status_code=404, detail="章节文件不存在")
+
+
 def load_course_json(code: str) -> Dict[str, Any]:
     """加载课程的 course.json"""
-    courses_dir = Path(__file__).parent.parent.parent / "courses"
-    course_json_path = courses_dir / code / "course.json"
-    
+    from app.core.paths import get_course_json_path
+
+    course_json_path = get_course_json_path(code)
     if course_json_path.exists():
         with open(course_json_path, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 
+def normalize_chapter_order(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def save_course_json(code: str, data: Dict[str, Any]) -> None:
     """保存 course.json"""
-    courses_dir = Path(__file__).parent.parent.parent / "courses"
+    from app.core.paths import MARKDOWN_COURSES_DIR as courses_dir
     course_json_path = courses_dir / code / "course.json"
     
     with open(course_json_path, "w", encoding="utf-8") as f:
@@ -262,6 +319,8 @@ async def list_course_chunks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     source_file: Optional[str] = None,
+    chapter_name: Optional[str] = None,
+    chapter_order: Optional[int] = Query(None, description="章节序号"),
     content_type: Optional[str] = None,
     search: Optional[str] = None,
     kb_version: Optional[int] = None
@@ -280,13 +339,17 @@ async def list_course_chunks(
         rag_service = RAGService.get_instance()
         all_chunks = rag_service.get_all_chunks(code, actual_version)
         
+        filter_source_file = None
+        if source_file or chapter_name or chapter_order is not None:
+            filter_source_file = resolve_source_file(code, source_file, chapter_name, chapter_order)
+
         # 过滤
         filtered_chunks = []
         for chunk in all_chunks:
             metadata = chunk.get("metadata", {})
             
             # 按章节过滤
-            if source_file and metadata.get("source_file") != source_file:
+            if filter_source_file and metadata.get("source_file") != filter_source_file:
                 continue
             
             if content_type and metadata.get("content_type") != content_type:
@@ -364,26 +427,29 @@ async def get_chunk_detail(
 @router.post("/courses/reindex", response_model=ReindexResponse)
 async def reindex_course(
     code: str = Query(..., description="课程代码"),
-    chapters: List[Dict[str, str]] = [],
-    request: ReindexRequest = ReindexRequest(),
+    clear_existing: bool = Query(False, description="是否清理旧索引"),
+    kb_version: Optional[int] = Query(None, description="知识库版本"),
+    chapters: Optional[List[Dict[str, str]]] = Body(None, description="章节列表（可选）"),
     db: Session = Depends(get_db)
 ):
-    """
-    批量索引课程下所有章节
-    
-    Args:
-        code: 课程代码（目录名）
-        chapters: 章节列表，格式 [{"file": "01_intro.md"}, ...]
-        request: 索引请求配置
-    """
     embedding_status = await check_embedding_status()
     if not embedding_status["available"]:
         raise HTTPException(status_code=503, detail="Embedding 服务不可用")
+
+    if not chapters:
+        course_data = load_course_json(code)
+        chapters = [
+            {"file": ch.get("file", "")}
+            for ch in course_data.get("chapters", [])
+            if ch.get("file")
+        ]
+        if not chapters:
+            raise HTTPException(status_code=404, detail="课程章节为空，无法索引")
     
     # 确定版本号
-    if request.kb_version:
-        new_version = request.kb_version
-    elif request.clear_existing:
+    if kb_version:
+        new_version = kb_version
+    elif clear_existing:
         new_version = 1
     else:
         new_version = increment_kb_version(code)
@@ -406,7 +472,7 @@ async def reindex_course(
     ]
     
     job_config = {
-        "clear_existing": request.clear_existing,
+        "clear_existing": clear_existing,
         "kb_version": new_version
     }
     
@@ -438,7 +504,9 @@ async def reindex_course(
 @router.post("/chapters/reindex", response_model=ReindexResponse)
 async def reindex_chapter(
     code: str = Query(..., description="课程代码"),
-    source_file: str = Query(..., description="章节文件名"),
+    source_file: Optional[str] = Query(None, description="章节文件名"),
+    chapter_name: Optional[str] = Query(None, description="章节名称"),
+    chapter_order: Optional[int] = Query(None, description="章节序号"),
     request: ReindexRequest = ReindexRequest(),
     db: Session = Depends(get_db)
 ):
@@ -449,8 +517,9 @@ async def reindex_chapter(
     if not embedding_status["available"]:
         raise HTTPException(status_code=503, detail="Embedding 服务不可用")
     
-    temp_ref = f"{code}/{source_file}"
-    config = get_or_create_kb_config(db, code, source_file)
+    actual_source_file = resolve_source_file(code, source_file, chapter_name, chapter_order)
+    temp_ref = f"{code}/{actual_source_file}"
+    config = get_or_create_kb_config(db, code, actual_source_file)
     config.index_status = "pending"
     config.index_error = None
     db.commit()
@@ -469,7 +538,7 @@ async def reindex_chapter(
             index_chapter,
             temp_ref,
             code,
-            source_file,
+            actual_source_file,
             job_config,
             queue_name="indexing",
             timeout=600
@@ -537,6 +606,8 @@ async def test_retrieval(
     request: RetrievalTestRequest,
     code: str = Query(..., description="课程代码"),
     source_file: Optional[str] = Query(None, description="章节文件路径"),
+    chapter_name: Optional[str] = Query(None, description="章节名称"),
+    chapter_order: Optional[int] = Query(None, description="章节序号"),
     kb_version: Optional[int] = Query(None, description="知识库版本")
 ):
     """召回测试"""
@@ -552,8 +623,9 @@ async def test_retrieval(
     
     # 构建过滤器
     filters = None
-    if source_file:
-        filters = {"source_file": source_file}
+    if source_file or chapter_name or chapter_order is not None:
+        actual_source_file = resolve_source_file(code, source_file, chapter_name, chapter_order)
+        filters = {"source_file": actual_source_file}
     
     top_k = request.top_k or 5
     score_threshold = request.score_threshold or 0.0
@@ -590,25 +662,19 @@ async def test_retrieval(
 @router.get("/chapters/config")
 async def get_chapter_kb_config(
     code: str,
-    source_file: str,
+    source_file: Optional[str] = Query(None, description="章节文件名"),
+    chapter_name: Optional[str] = Query(None, description="章节名称"),
+    chapter_order: Optional[int] = Query(None, description="章节序号"),
     db: Session = Depends(get_db)
 ):
     """获取章节知识库配置"""
-    config = get_or_create_kb_config(db, code, source_file)
-    
-    # 从 ChromaDB 获取统计
-    chunk_count = 0
-    try:
-        rag_service = RAGService.get_instance()
-        kb_version = get_current_kb_version(code)
-        chunk_count = rag_service.get_collection_size(code, kb_version)
-    except Exception:
-        pass
+    actual_source_file = resolve_source_file(code, source_file, chapter_name, chapter_order)
+    config = get_or_create_kb_config(db, code, actual_source_file)
     
     return KBConfigResponse(
         config=config.to_dict(),
         stats={
-            "chunk_count": chunk_count,
+            "chunk_count": config.chunk_count,
             "graph_entity_count": config.graph_entity_count,
             "graph_relation_count": config.graph_relation_count,
             "index_status": config.index_status,
@@ -621,12 +687,15 @@ async def get_chapter_kb_config(
 @router.put("/chapters/config")
 async def update_chapter_kb_config(
     code: str,
-    source_file: str,
     update: KBConfigUpdate,
+    source_file: Optional[str] = Query(None, description="章节文件名"),
+    chapter_name: Optional[str] = Query(None, description="章节名称"),
+    chapter_order: Optional[int] = Query(None, description="章节序号"),
     db: Session = Depends(get_db)
 ):
     """更新章节知识库配置"""
-    config = get_or_create_kb_config(db, code, source_file)
+    actual_source_file = resolve_source_file(code, source_file, chapter_name, chapter_order)
+    config = get_or_create_kb_config(db, code, actual_source_file)
     
     update_fields = {
         'chunking_strategy': update.chunking_strategy,
@@ -659,7 +728,7 @@ async def update_chapter_kb_config(
 @router.get("/courses")
 async def list_kb_courses():
     """列出所有可用于知识库管理的课程"""
-    courses_dir = Path(__file__).parent.parent.parent / "courses"
+    from app.core.paths import MARKDOWN_COURSES_DIR as courses_dir
     
     if not courses_dir.exists():
         return {"courses": []}

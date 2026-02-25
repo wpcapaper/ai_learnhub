@@ -4,6 +4,53 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-002] - 2026-02-24
+
+### Changed
+- 知识库管理页改为统一使用课程代码 + 章节文件的 RAG 管理接口
+- 管理端 API 客户端修正文档块详情查询参数为 code
+- 知识库管理页课程列表接口改为 markdown-courses
+- 章节配置/检索/索引接口改用 chapter_order 参数
+- 课程批量索引接口改为服务端从 course.json 读取章节
+- 知识库管理路由改为独立加载
+
+## [KB-ADMIN-003] - 2026-02-25
+
+### Changed
+- KB-ADMIN-003: 章节序号解析增加类型归一与课程路径回退
+- KB-ADMIN-003: 修复容器路径回退越界导致的 500
+- KB-ADMIN-003: 修正项目根目录解析以匹配容器路径
+- KB-ADMIN-004: 章节分块计数与列表刷新对齐
+
+## [RAG-CE-001] - 2026-02-25
+
+### Changed
+- RAG-CE-001: ai_chat 支持可选 RAG 召回并提供 C 端 RAG 查询接口
+
+## [RAG-CE-002] - 2026-02-25
+
+### Changed
+- RAG-CE-002: 移除 ai_chat RAG 参数与 C 端 RAG 查询接口，提供 RAG 工具函数
+
+## [RAG-CE-003] - 2026-02-25
+
+### Changed
+- RAG-CE-003: RAG 工具支持章节维度召回并新增接入说明
+- RAG-CE-003: 忽略 .bak 备份文件
+- 清理无用的 .bak 备份文件
+
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## [RAG-ARCH-001] - 2026-02-24
 
 ### Changed
@@ -52,6 +99,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## [wc-fix-0224] - 2026-02-24
 
 ### Fixed
@@ -69,6 +128,18 @@ All notable changes to this project will be documented in this file.
  `src/frontend/components/WordcloudViewer.tsx`
 
 ---
+
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
 
 ## [course_import_lifecycle_refactor_20260223] - 2026-02-23
 
@@ -152,6 +223,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## 2026-02-20
 
 ### Features
@@ -164,6 +247,18 @@ All notable changes to this project will be documented in this file.
 - **Docker 配置** - 统一 frontend 与 admin-frontend 构建配置
 
 ---
+
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
 
 ## 2026-02-19
 
@@ -181,12 +276,36 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## 2026-02-04
 
 ### Features
 - **学习课程系统** - Chapter 模型、ReadingProgress 模型、Markdown 阅读器、AI 助手
 
 ---
+
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
 
 ## 2026-01-23
 
@@ -204,6 +323,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## 2026-01-22
 
 ### Features
@@ -215,6 +346,18 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
+
 ## 2026-01-21
 
 ### Features
@@ -225,6 +368,18 @@ All notable changes to this project will be documented in this file.
 - **轮次管理** - 新增 `completed_in_current_round` 字段，轮次与复习阶段解耦
 
 ---
+
+## [KB-ADMIN-001] - 2026-02-24
+
+### Analysis
+- RAG 管理模块现状分析：后端已符合 RAG_ARCHITECTURE.md 规范
+- 版本 fallback 机制确认：course.json 无 kb_version 时默认为 1
+- 管理端前端待简化：移除双数据源概念
+
+### Docs
+- `vibe-coding-logs/change_intent/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+- `vibe-coding-logs/change_log/aie55_llm5_learnhub/KB-ADMIN-001_rag_admin_simplify.md`
+
 ## [outline_nav_enhance_0222] - 2026-02-22
 
 ### Fixed

@@ -56,7 +56,7 @@ services:
     volumes:
       - ./src/backend/data:/app/data
       - ./src/backend/app:/app/app
-      - ./courses:/app/courses
+      - ./markdown_courses:/app/markdown_courses
     command: uv run python -c "from rq import Worker, Queue; from redis import Redis; redis_conn = Redis.from_url('redis://redis:6379/0'); worker = Worker([Queue('default', connection=redis_conn), Queue('indexing', connection=redis_conn)], connection=redis_conn); worker.work()"
     depends_on:
       - redis

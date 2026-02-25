@@ -13,7 +13,7 @@ from app.services import LearningService
 from prompts import prompt_loader
 
 # LLM 客户端（使用新的封装层）
-from app.llm import get_llm_client, trace_llm_call
+from app.llm import get_llm_client
 
 
 router = APIRouter(prefix="/learning", tags=["学习课程"])
@@ -221,7 +221,7 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
 
     chapter = db.query(Chapter).filter(
         Chapter.id == request.chapter_id,
-        Chapter.is_deleted == False
+        Chapter.is_deleted.is_(False)
     ).first()
 
     if not chapter:
@@ -239,15 +239,6 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     max_history = prompt_loader.get_config("ai_assistant", "variables", {}).get("max_history", 10)
     history_messages = LearningService.get_conversation_history(db, conversation_id, limit=max_history)
     
-    messages_payload = prompt_loader.get_messages(
-        "ai_assistant",
-        include_templates=["course_context"],
-        course_content=markdown_content
-    )
-    
-    for msg in history_messages:
-        messages_payload.append({"role": msg["role"], "content": msg["content"]})
-
     # 获取 LLM 客户端
     try:
         llm = get_llm_client()
@@ -281,6 +272,15 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
             if user:
                 user_nickname = user.nickname
         
+        messages_payload = prompt_loader.get_messages(
+            "ai_assistant",
+            include_templates=["course_context"],
+            course_content=markdown_content
+        )
+
+        for msg in history_messages:
+            messages_payload.append({"role": msg["role"], "content": msg["content"]})
+
         # 提取 system prompt 和 user messages
         # 注意：messages_payload 可能包含多条 system 消息（如 system_prompt + course_context）
         system_parts = []

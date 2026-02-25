@@ -6,8 +6,7 @@ import {
   RAGStatus, 
   ChapterKBConfig, 
   DocumentChunk, 
-  Course, 
-  DatabaseCourse
+  Course
 } from '@/lib/api';
 
 type TabType = 'chunks' | 'config' | 'test';
@@ -38,7 +37,6 @@ interface ChapterWithId {
   title: string;
   file: string;
   sort_order: number;
-  realChapterId?: string;
   indexStatus?: string;
   chunkCount?: number;
   // 当前正在执行的任务信息
@@ -51,9 +49,7 @@ interface CourseWithId {
   title: string;
   code: string;
   description: string;
-  realCourseId?: string;
   chapters: ChapterWithId[];
-  isImported: boolean;
 }
 
 // 后端返回的待处理任务结构
@@ -68,14 +64,13 @@ interface PendingTask {
 export default function KnowledgeBasePage() {
   const [ragStatus, setRAGStatus] = useState<RAGStatus | null>(null);
   const [courses, setCourses] = useState<CourseWithId[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<string>('');
+  const [selectedCourseCode, setSelectedCourseCode] = useState<string>('');
   const [selectedChapterIndex, setSelectedChapterIndex] = useState<number>(0);
-  // 数据源切换：temp_ref（本地文件）或 id（数据库）
-  const [useTempRef, setUseTempRef] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<TabType>('chunks');
   const [loading, setLoading] = useState(true);
   const [batchIndexing, setBatchIndexing] = useState(false);
   const [batchProgress, setBatchProgress] = useState<string>('');
+  const [chunksRefreshKey, setChunksRefreshKey] = useState(0);
   // syncingCourse 和 syncProgress 已移除
   const [toasts, setToasts] = useState<Toast[]>([]);
   
@@ -85,18 +80,13 @@ export default function KnowledgeBasePage() {
   const pendingTasksRef = useRef<Map<string, PendingTask>>(new Map());
   // 轮询定时器引用
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
-  // 保存最新的 courseId 用于回调
-  const selectedCourseIdRef = useRef<string>('');
   // 保存最新的 courses 用于回调
   const coursesRef = useRef<CourseWithId[]>([]);
 
   useEffect(() => {
-    selectedCourseIdRef.current = selectedCourseId;
-  }, [selectedCourseId]);
-
-  useEffect(() => {
     coursesRef.current = courses;
   }, [courses]);
+
 
   // 注册全局 toast 函数
   useEffect(() => {
@@ -109,8 +99,8 @@ export default function KnowledgeBasePage() {
   }, []);
 
   // 拉取指定课程的待处理任务
-  const fetchPendingTasks = useCallback(async (courseId: string) => {
-    const res = await adminApi.getCoursePendingTasks(courseId);
+  const fetchPendingTasks = useCallback(async (courseCode: string) => {
+    const res = await adminApi.getCoursePendingTasks(courseCode);
     if (res.success && res.data?.tasks) {
       const taskMap = new Map<string, PendingTask>();
       res.data.tasks.forEach(task => {
@@ -122,6 +112,10 @@ export default function KnowledgeBasePage() {
     }
     return [];
   }, []);
+
+  const selectedCourse = courses.find(c => c.code === selectedCourseCode);
+  const selectedChapter = selectedCourse?.chapters?.[selectedChapterIndex];
+  const selectedChapterOrder = selectedChapter?.sort_order ?? 0;
 
   // 轮询所有待处理任务的状态
   const pollPendingTasks = useCallback(async () => {
@@ -156,7 +150,7 @@ export default function KnowledgeBasePage() {
       // 批量更新章节状态
       if (completedFiles.length > 0) {
         setCourses(prev => prev.map(c => {
-          if (c.id !== selectedCourseId) return c;
+          if (c.code !== selectedCourseCode) return c;
           return {
             ...c,
             chapters: c.chapters.map(ch => {
@@ -182,17 +176,20 @@ export default function KnowledgeBasePage() {
           clearInterval(pollingRef.current);
           pollingRef.current = null;
         }
-        loadChapterIndexStatus(selectedCourseId);
+        loadChapterIndexStatus(selectedCourseCode);
+        if (selectedChapterOrder > 0) {
+          setChunksRefreshKey(prev => prev + 1);
+        }
       }
     }
-  }, [selectedCourseId]);
+  }, [selectedCourseCode, selectedChapterOrder]);
 
   // 页面加载时检查是否有待处理任务
   useEffect(() => {
-    if (selectedCourseId) {
-      fetchPendingTasks(selectedCourseId);
+    if (selectedCourseCode) {
+      fetchPendingTasks(selectedCourseCode);
     }
-  }, [selectedCourseId, fetchPendingTasks]);
+  }, [selectedCourseCode, fetchPendingTasks]);
 
   // 当有待处理任务时启动轮询
   useEffect(() => {
@@ -214,78 +211,47 @@ export default function KnowledgeBasePage() {
   const loadData = async () => {
     setLoading(true);
     
-    const [statusRes, coursesRes, dbCoursesRes] = await Promise.all([
+    const [statusRes, coursesRes] = await Promise.all([
       adminApi.getRAGStatus(),
-      adminApi.getCourses(),
-      adminApi.getDatabaseCourses(),
+      adminApi.getMarkdownCourses(),
     ]);
     
     if (statusRes.success && statusRes.data) {
       setRAGStatus(statusRes.data);
     }
     
-    if (coursesRes.success && coursesRes.data && dbCoursesRes.success && dbCoursesRes.data) {
-      const dbCourses = dbCoursesRes.data;
-      const dbCourseMap = new Map(dbCourses.map(c => [c.code, c]));
-      
-      const dbChaptersPromises = dbCourses.map(async (dbCourse) => {
-        try {
-          const res = await adminApi.getDatabaseChapters(dbCourse.id);
-          if (res.success && res.data) {
-            return { courseId: dbCourse.id, chapters: res.data };
-          }
-        } catch {
-        }
-        return { courseId: dbCourse.id, chapters: [] };
-      });
-      
-      const dbChaptersResults = await Promise.all(dbChaptersPromises);
-      const allDbChaptersMap = new Map(
-        dbChaptersResults.map(r => [r.courseId, new Map(r.chapters.map(c => [c.title, c.id]))])
-      );
-      
-      const mergedCourses: CourseWithId[] = coursesRes.data.map(course => {
-        const dbCourse = dbCourseMap.get(course.code);
-        const isImported = !!dbCourse;
-        const dbChaptersMap = dbCourse ? allDbChaptersMap.get(dbCourse.id) : null;
-        
-        return {
-          id: course.id,
-          title: course.title,
-          code: course.code,
-          description: course.description,
-          realCourseId: dbCourse?.id,
-          chapters: (course.chapters || []).map(ch => ({
-            title: ch.title,
-            file: ch.file,
-            sort_order: ch.sort_order,
-            realChapterId: dbChaptersMap?.get(ch.title),
-            indexStatus: 'not_indexed',
-            chunkCount: 0
-          })),
-          isImported
-        };
-      });
+    if (coursesRes.success && coursesRes.data) {
+      const mergedCourses: CourseWithId[] = coursesRes.data.map(course => ({
+        id: course.id,
+        title: course.title,
+        code: course.code,
+        description: course.description,
+        chapters: (course.chapters || []).map(ch => ({
+          title: ch.title,
+          file: ch.file,
+          sort_order: ch.sort_order,
+          indexStatus: 'not_indexed',
+          chunkCount: 0
+        })),
+      }));
       
       setCourses(mergedCourses);
       if (mergedCourses.length > 0) {
-        setSelectedCourseId(mergedCourses[0].id);
+        setSelectedCourseCode(mergedCourses[0].code);
       }
     }
     
     setLoading(false);
   };
 
-  const loadChapterIndexStatus = useCallback(async (courseId: string) => {
-    const course = coursesRef.current.find(c => c.id === courseId);
+  const loadChapterIndexStatus = useCallback(async (courseCode: string) => {
+    const course = coursesRef.current.find(c => c.code === courseCode);
     if (!course) return;
-    
-    const courseCode = course.code;
     
     const statuses = await Promise.all(
       course.chapters.map(async (ch) => {
         try {
-          const res = await adminApi.getChapterKBConfigByRef(courseCode, ch.file);
+          const res = await adminApi.getChapterKBConfigByRef(courseCode, ch.sort_order);
           if (res.success && res.data) {
             return {
               file: ch.file,
@@ -301,7 +267,7 @@ export default function KnowledgeBasePage() {
     const statusMap = new Map(statuses.map(s => [s.file, s]));
     
     setCourses(prev => prev.map(c => {
-      if (c.id !== courseId) return c;
+      if (c.code !== courseCode) return c;
       return {
         ...c,
         chapters: c.chapters.map(ch => {
@@ -313,10 +279,10 @@ export default function KnowledgeBasePage() {
   }, []);
 
   useEffect(() => {
-    if (selectedCourseId && courses.length > 0) {
-      loadChapterIndexStatus(selectedCourseId);
+    if (selectedCourseCode && courses.length > 0) {
+      loadChapterIndexStatus(selectedCourseCode);
     }
-  }, [selectedCourseId, courses.length]);
+  }, [selectedCourseCode, courses.length]);
 
   const handleBatchIndex = async () => {
     if (!selectedCourse || batchIndexing) return;
@@ -327,12 +293,7 @@ export default function KnowledgeBasePage() {
     // 使用 code（课程代码/目录名）
     const courseCode = selectedCourse.code;
     
-    const chapters = selectedCourse.chapters.map(ch => ({
-      file: ch.file,
-      temp_ref: `${courseCode}/${ch.file}`
-    }));
-    
-    const res = await adminApi.reindexCourse(courseCode, chapters, true);
+    const res = await adminApi.reindexCourse(courseCode, true);
     
     if (res.success && res.data) {
       setBatchProgress(`已加入队列，正在处理...`);
@@ -341,7 +302,7 @@ export default function KnowledgeBasePage() {
       
       // 更新章节状态为处理中
       setCourses(prev => prev.map(c => {
-        if (c.id !== selectedCourse.id) return c;
+        if (c.code !== selectedCourse.code) return c;
         return {
           ...c,
           chapters: c.chapters.map(ch => {
@@ -372,21 +333,6 @@ export default function KnowledgeBasePage() {
       ch.indexStatus === 'indexed' || ch.indexStatus === 'indexing'
     ).length;
     return { indexed, total: selectedCourse.chapters.length };
-  };
-
-  const selectedCourse = courses.find(c => c.id === selectedCourseId);
-  const selectedChapter = selectedCourse?.chapters?.[selectedChapterIndex];
-
-  const getChapterIdentifier = (): { type: 'id' | 'temp_ref'; value: string } | null => {
-    if (!selectedCourse || !selectedChapter) return null;
-    
-    // 根据用户选择的数据源决定使用哪种标识符
-    if (!useTempRef && selectedChapter.realChapterId) {
-      return { type: 'id', value: selectedChapter.realChapterId };
-    }
-    
-    const tempRef = `${selectedCourse.id}/${selectedChapter.file}`;
-    return { type: 'temp_ref', value: tempRef };
   };
 
   const StatusIndicator = () => (
@@ -494,41 +440,20 @@ export default function KnowledgeBasePage() {
             <div className="flex-1">
               <label className="block text-sm text-gray-400 mb-2">选择课程</label>
               <select
-                value={selectedCourseId}
+                value={selectedCourseCode}
                 onChange={(e) => {
-                  setSelectedCourseId(e.target.value);
+                  setSelectedCourseCode(e.target.value);
                   setSelectedChapterIndex(0);
                 }}
                 className="w-full bg-[#1e1e3f] border border-[rgba(99,102,241,0.2)] text-white px-3 py-2 rounded-lg"
               >
                 {courses.map((course) => (
-                  <option key={course.id} value={course.id}>
+                  <option key={course.code} value={course.code}>
                     {course.title}
                   </option>
                 ))}
               </select>
             </div>
-          
-          {/* 课程状态 */}
-          {selectedCourse && (
-            <div className="flex items-center gap-3 pb-0.5">
-              {selectedCourse.isImported ? (
-                <span className="flex items-center gap-1.5 text-sm text-green-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
-                  已导入为线上课程
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-sm text-amber-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  仅本地
-                </span>
-              )}
-            </div>
-          )}
           </div>
         )}
       </div>
@@ -553,15 +478,6 @@ export default function KnowledgeBasePage() {
               >
                 {batchIndexing ? '索引中...' : '一键索引全部章节'}
               </button>
-              {selectedCourse.isImported && (
-                <button
-                  onClick={() => showToast("info", "同步功能已移除")}
-                  disabled={false}
-                  className="btn btn-secondary text-sm"
-                >
-                  查看导入说明
-                </button>
-              )}
             </div>
           </div>
           
@@ -628,59 +544,27 @@ export default function KnowledgeBasePage() {
             {tab.label}
           </button>
         ))}
-        
-        {/* 数据源切换 */}
-        <div className="ml-auto flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">数据源:</span>
-            <button
-              onClick={() => setUseTempRef(true)}
-              className={`px-2 py-1 rounded text-xs transition-all ${
-                useTempRef 
-                  ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' 
-                  : 'text-gray-500 hover:text-gray-400'
-              }`}
-            >
-              本地分块
-            </button>
-            <button
-              onClick={() => selectedChapter?.realChapterId && setUseTempRef(false)}
-              disabled={!selectedChapter?.realChapterId}
-              className={`px-2 py-1 rounded text-xs transition-all ${
-                !useTempRef 
-                  ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' 
-                  : selectedChapter?.realChapterId
-                    ? 'text-gray-500 hover:text-gray-400'
-                    : 'text-gray-600 cursor-not-allowed'
-              }`}
-              title={selectedChapter?.realChapterId ? '查看已同步到线上课程的分块' : '课程未导入，无法查看线上分块'}
-            >
-              线上课程
-              {!selectedChapter?.realChapterId && <span className="ml-1 text-gray-600">(未导入)</span>}
-            </button>
-          </div>
-        </div>
       </div>
 
       {selectedChapter ? (
         <>
-          {activeTab === 'chunks' && <ChunksTab 
-            tempRef={`${selectedCourseId}/${selectedChapter?.file}`}
-            realChapterId={selectedChapter?.realChapterId}
-            useTempRef={useTempRef}
-            courseCode={selectedCourse?.code}
-            showSyncCard={selectedCourse?.isImported}
-            onReindexTriggered={(taskId) => {
-              fetchPendingTasks(selectedCourseId);
-            }}
-          />}
-          {activeTab === 'config' && <ConfigTab chapterId={getChapterIdentifier()} />}
-          {activeTab === 'test' && <TestTab 
-            tempRef={`${selectedCourseId}/${selectedChapter?.file}`}
-            realChapterId={selectedChapter?.realChapterId}
-            useTempRef={useTempRef}
-            courseCode={selectedCourse?.code}
-          />}
+          {activeTab === 'chunks' && selectedCourse && selectedChapter && (
+            <ChunksTab
+              courseCode={selectedCourse.code}
+              sourceFile={selectedChapter.file}
+              chapterOrder={selectedChapterOrder}
+              refreshKey={chunksRefreshKey}
+              onReindexTriggered={() => {
+                fetchPendingTasks(selectedCourse.code);
+              }}
+            />
+          )}
+          {activeTab === 'config' && selectedCourse && selectedChapter && (
+            <ConfigTab courseCode={selectedCourse.code} chapterOrder={selectedChapterOrder} />
+          )}
+          {activeTab === 'test' && selectedCourse && selectedChapter && (
+            <TestTab courseCode={selectedCourse.code} sourceFile={selectedChapter.file} chapterOrder={selectedChapterOrder} />
+          )}
         </>
       ) : (
         <div className="card p-8 text-center text-gray-500">
@@ -691,19 +575,17 @@ export default function KnowledgeBasePage() {
   );
 }
 
-function ChunksTab({ 
-  tempRef, 
-  realChapterId, 
-  useTempRef = true,
+function ChunksTab({
   courseCode,
-  showSyncCard = false,
-  onReindexTriggered 
-}: { 
-  tempRef: string;
-  realChapterId?: string;
-  useTempRef?: boolean;
-  courseCode?: string;
-  showSyncCard?: boolean;
+  sourceFile,
+  chapterOrder,
+  refreshKey,
+  onReindexTriggered,
+}: {
+  courseCode: string;
+  sourceFile: string;
+  chapterOrder: number;
+  refreshKey: number;
   onReindexTriggered?: (taskId: string) => void;
 }) {
   const [chunks, setChunks] = useState<DocumentChunk[]>([]);
@@ -715,17 +597,11 @@ function ChunksTab({
   const [chunkDetailLoading, setChunkDetailLoading] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const [reindexTaskId, setReindexTaskId] = useState<string | null>(null);
-  const [syncing, setSyncing] = useState(false);
-
-  // 保存上一次的 tempRef，用于判断是否需要重置
-  const prevTempRefRef = useRef<string | null>(null);
+  const prevKeyRef = useRef<string | null>(null);
   const reindexPollingRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadChunks = useCallback(async (resetPage = false) => {
-    if (!courseCode || !tempRef) return;
-    
-    // 从 tempRef 中提取 source_file
-    const sourceFile = tempRef.split('/')[1] || '';
+    if (!courseCode || chapterOrder <= 0) return;
     
     if (resetPage) {
       setPage(1);
@@ -737,37 +613,40 @@ function ChunksTab({
     
     setLoading(true);
     
-    // 根据数据源选择不同的 API
-    let res;
-    if (useTempRef) {
-      // 本地分块：使用 code 和 source_file 查询
-      res = await adminApi.getChapterChunksByRef(courseCode, sourceFile, { page: resetPage ? 1 : page, page_size: 10, search: searchQuery || undefined });
-    } else if (realChapterId) {
-      // 线上课程分块：按 chapter_id 查询
-      res = await adminApi.getChapterChunksById(realChapterId, { page: resetPage ? 1 : page, page_size: 10, search: searchQuery || undefined });
-    } else {
-      res = { success: false, error: '无法获取分块数据' };
-    }
+    const res = await adminApi.getChapterChunksByRef(courseCode, chapterOrder, {
+      page: resetPage ? 1 : page,
+      page_size: 10,
+      search: searchQuery || undefined,
+    });
     
     if (res.success && res.data) {
       setChunks(res.data.chunks);
       setTotal(res.data.total);
     }
     setLoading(false);
-  }, [tempRef, courseCode, realChapterId, useTempRef, page, searchQuery]);
+  }, [courseCode, chapterOrder, page, searchQuery]);
 
-  // 监听 tempRef 或数据源变化，重置并加载
   useEffect(() => {
-    const currentKey = `${tempRef}-${useTempRef}`;
-    if (currentKey !== prevTempRefRef.current) {
-      prevTempRefRef.current = currentKey;
+    const currentKey = `${courseCode}/${chapterOrder}`;
+    if (currentKey !== prevKeyRef.current) {
+      prevKeyRef.current = currentKey;
       loadChunks(true);
     }
-  }, [tempRef, useTempRef, loadChunks]);
+  }, [courseCode, chapterOrder, loadChunks]);
+
+  useEffect(() => {
+    if (!refreshKey) return;
+    setPage(1);
+    setSearchQuery('');
+    setSelectedChunk(null);
+    setChunks([]);
+    setTotal(0);
+    loadChunks(true);
+  }, [refreshKey, loadChunks]);
 
   // 监听 page 变化，仅加载（不重置）
   useEffect(() => {
-    if (prevTempRefRef.current) {
+    if (prevKeyRef.current) {
       loadChunks(false);
     }
   }, [page]);
@@ -812,13 +691,11 @@ function ChunksTab({
   };
 
   const handleReindex = async () => {
-    if (!tempRef || !courseCode || reindexing) return;
+    if (!courseCode || chapterOrder <= 0 || reindexing) return;
     
     setReindexing(true);
     
-    // 本地分块才能重建索引，使用 code 和 source_file
-    const sourceFile = tempRef.split('/')[1] || '';
-    const res = await adminApi.reindexChapterByRef(courseCode, sourceFile);
+    const res = await adminApi.reindexChapterByRef(courseCode, chapterOrder);
     
     if (res.success && res.data?.task_id) {
       const taskId = res.data.task_id;
@@ -864,48 +741,12 @@ function ChunksTab({
     return stats;
   };
 
-  if (!tempRef) return null;
+  if (!sourceFile) return null;
 
   const tokenStats = getTokenStats();
 
   return (
     <div className="space-y-4">
-      {/* 本地分块模式下，课程已导入时，显示同步操作卡片 */}
-      {useTempRef && showSyncCard && (
-        <div className="flex items-center justify-between p-4 rounded-lg bg-gradient-to-r from-purple-500/10 to-cyan-500/10 border border-purple-500/20">
-          <div>
-            <div className="text-sm font-medium text-white mb-1">同步到线上课程</div>
-            <div className="text-xs text-gray-400">将本地分块同步到线上课程，供线上学习使用</div>
-          </div>
-          {!realChapterId ? (
-            <div className="flex items-center gap-2 text-sm text-gray-400">
-              <div className="w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              匹配章节中...
-            </div>
-          ) : (
-            <button 
-              onClick={() => showToast('info', '同步功能已移除')}
-              disabled={syncing || chunks.length === 0}
-              className="btn btn-primary text-sm flex items-center gap-2 whitespace-nowrap"
-              title={chunks.length === 0 ? '请先建立索引' : '同步分块到线上课程'}
-            >
-              {syncing ? (
-                <>
-                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  同步中...
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                  </svg>
-                  {chunks.length === 0 ? '请先建立索引' : '同步到线上'}
-                </>
-              )}
-            </button>
-          )}
-        </div>
-      )}
 
       <div className="flex gap-4">
         <div className="flex-1 flex gap-2">
@@ -919,7 +760,7 @@ function ChunksTab({
           />
           <button onClick={handleSearch} className="btn btn-secondary">搜索</button>
         </div>
-        <button onClick={handleReindex} disabled={reindexing || !useTempRef} className="btn btn-primary">
+        <button onClick={handleReindex} disabled={reindexing} className="btn btn-primary">
           {reindexing ? (
             <span className="flex items-center gap-2">
               <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -927,7 +768,6 @@ function ChunksTab({
             </span>
           ) : '重建索引'}
         </button>
-        {/* 同步到线上课程按钮 - 仅在本地分块模式且课程已导入时显示 */}
       </div>
 
       {reindexing && (
@@ -1067,25 +907,20 @@ function ChunksTab({
   );
 }
 
-function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value: string } | null }) {
+function ConfigTab({ courseCode, chapterOrder }: { courseCode: string; chapterOrder: number }) {
   const [config, setConfig] = useState<ChapterKBConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (chapterId) loadConfig();
-  }, [chapterId]);
+    if (courseCode && chapterOrder > 0) loadConfig();
+  }, [courseCode, chapterOrder]);
 
   const loadConfig = async () => {
-    if (!chapterId) return;
+    if (!courseCode || chapterOrder <= 0) return;
     setLoading(true);
     
-    const res = chapterId.type === 'id'
-      ? await adminApi.getChapterKBConfig(chapterId.value)
-      : await adminApi.getChapterKBConfigByRef(
-          chapterId.value.split('/')[0],
-          chapterId.value.split('/').slice(1).join('/')
-        );
+    const res = await adminApi.getChapterKBConfigByRef(courseCode, chapterOrder);
     
     if (res.success && res.data) {
       setConfig(res.data.config);
@@ -1094,16 +929,10 @@ function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value:
   };
 
   const handleSave = async () => {
-    if (!config || !chapterId) return;
+    if (!config || !courseCode || chapterOrder <= 0) return;
     setSaving(true);
     
-    const res = chapterId.type === 'id'
-      ? await adminApi.updateChapterKBConfig(chapterId.value, config)
-      : await adminApi.updateChapterKBConfigByRef(
-          chapterId.value.split('/')[0],
-          chapterId.value.split('/').slice(1).join('/'),
-          config
-        );
+    const res = await adminApi.updateChapterKBConfigByRef(courseCode, chapterOrder, config);
     
     if (res.success) {
       showToast('success', '配置已保存');
@@ -1114,7 +943,7 @@ function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value:
   };
 
   if (loading) return <div className="text-center text-gray-500 py-8">加载中...</div>;
-  if (!chapterId) return null;
+  if (!courseCode || chapterOrder <= 0) return null;
 
   return (
     <div className="space-y-6">
@@ -1235,16 +1064,14 @@ function ConfigTab({ chapterId }: { chapterId: { type: 'id' | 'temp_ref'; value:
   );
 }
 
-function TestTab({ 
-  tempRef, 
-  realChapterId, 
-  useTempRef = true,
-  courseCode 
-}: { 
-  tempRef: string;
-  realChapterId?: string;
-  useTempRef?: boolean;
-  courseCode?: string;
+function TestTab({
+  courseCode,
+  sourceFile,
+  chapterOrder,
+}: {
+  courseCode: string;
+  sourceFile: string;
+  chapterOrder: number;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Array<{ chunk_id: string; content: string; score: number; source: string }>>([]);
@@ -1256,26 +1083,15 @@ function TestTab({
   const [scoreThreshold, setScoreThreshold] = useState(0);
 
   // 当前章节的文件名（用于判断召回结果是否来自其他章节）
-  const currentChapterFile = tempRef?.split('/').pop() || '';
+  const currentChapterFile = sourceFile || '';
 
   const handleSearch = async () => {
     if (!query.trim()) return;
-    if (!tempRef && useTempRef) return;
-    if (!realChapterId && !useTempRef) return;
-    if (!courseCode && useTempRef) return;
+    if (!courseCode || chapterOrder <= 0) return;
     
     setLoading(true);
     
-    // 根据数据源选择 API
-    let res;
-    if (useTempRef) {
-      // 本地分块：使用 code 和 source_file 召回
-      const sourceFile = tempRef.split('/')[1] || '';
-      res = await adminApi.testChapterRetrievalByRef(courseCode!, sourceFile, query, { top_k: topK, score_threshold: scoreThreshold });
-    } else {
-      // 线上课程分块：按 chapter_id 召回
-      res = await adminApi.testChapterRetrieval(realChapterId!, query, { top_k: topK, score_threshold: scoreThreshold });
-    }
+    const res = await adminApi.testChapterRetrievalByRef(courseCode, chapterOrder, query, { top_k: topK, score_threshold: scoreThreshold });
     
     if (res.success && res.data) {
       setResults(res.data.results);
@@ -1292,19 +1108,14 @@ function TestTab({
     return sourceFile !== currentChapterFile;
   };
 
-  if (!tempRef && !realChapterId) return null;
+  if (!courseCode || !sourceFile) return null;
 
   return (
     <div className="space-y-6">
-      {/* 数据源提示 */}
       <div className="flex items-center gap-2 text-xs">
         <span className="text-gray-500">召回数据源:</span>
-        <span className={`px-2 py-1 rounded ${
-          useTempRef 
-            ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/30' 
-            : 'bg-purple-500/20 text-purple-400 border border-purple-500/30'
-        }`}>
-          {useTempRef ? '本地分块 (ChromaDB)' : '线上课程分块 (ChromaDB)'}
+        <span className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-400 border border-cyan-500/30">
+          课程分块 (ChromaDB)
         </span>
       </div>
 

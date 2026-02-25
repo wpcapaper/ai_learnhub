@@ -1,9 +1,18 @@
-from typing import List, TYPE_CHECKING
+from dataclasses import dataclass
+import json
+from typing import List, Optional
 
 from .retriever import RetrievalResult
 
-if TYPE_CHECKING:
-    from ..service import RAGService
+
+@dataclass
+class RagChunk:
+    chunk_id: str
+    score: float
+    text: str
+    source_file: Optional[str] = None
+    position: Optional[int] = None
+    content_type: Optional[str] = None
 
 
 async def retrieve_course_content(
@@ -63,3 +72,118 @@ def format_results_for_agent(results: List[RetrievalResult]) -> str:
         formatted_parts.append(f"内容：{result.text}")
     
     return "\n".join(formatted_parts)
+
+
+async def retrieve_course_chunks(
+    query: str,
+    course_code: str,
+    top_k: int = 5,
+    score_threshold: float = 0.0,
+    chapter_source_file: Optional[str] = None,
+    chapter_order: Optional[int] = None
+) -> List[RagChunk]:
+    from ..service import RAGService
+    from app.core.paths import get_course_json_path
+
+    source_file = _resolve_source_file(course_code, chapter_source_file, chapter_order, get_course_json_path)
+    filters = {"source_file": source_file} if source_file else None
+
+    rag_service = RAGService.get_instance()
+    results = await rag_service.retrieve(
+        query=query,
+        code=course_code,
+        top_k=top_k,
+        score_threshold=score_threshold,
+        filters=filters,
+    )
+
+    chunks: List[RagChunk] = []
+    for result in results:
+        metadata = result.metadata if hasattr(result, "metadata") else {}
+        chunks.append(RagChunk(
+            chunk_id=result.chunk_id,
+            score=result.score,
+            text=result.text,
+            source_file=metadata.get("source_file"),
+            position=metadata.get("position"),
+            content_type=metadata.get("content_type"),
+        ))
+    return chunks
+
+
+async def retrieve_chapter_chunks(
+    query: str,
+    course_code: str,
+    top_k: int = 5,
+    score_threshold: float = 0.0,
+    chapter_source_file: Optional[str] = None,
+    chapter_order: Optional[int] = None
+) -> List[RagChunk]:
+    return await retrieve_course_chunks(
+        query=query,
+        course_code=course_code,
+        top_k=top_k,
+        score_threshold=score_threshold,
+        chapter_source_file=chapter_source_file,
+        chapter_order=chapter_order,
+    )
+
+
+def build_rag_context(chunks: List[RagChunk], max_context_chars: int = 3000) -> str:
+    if not chunks:
+        return ""
+    parts: List[str] = []
+    total_chars = 0
+    for idx, chunk in enumerate(chunks, 1):
+        header = f"[引用 {idx}] 来源: {chunk.source_file or '未知'} / 位置: {chunk.position if chunk.position is not None else '-'}"
+        block = f"{header}\n{chunk.text}\n"
+        if total_chars + len(block) > max_context_chars:
+            break
+        parts.append(block)
+        total_chars += len(block)
+    return "\n".join(parts).strip()
+
+
+def _resolve_source_file(
+    course_code: str,
+    chapter_source_file: Optional[str],
+    chapter_order: Optional[int],
+    get_course_json_path
+) -> Optional[str]:
+    if chapter_source_file:
+        return chapter_source_file
+    if chapter_order is None:
+        return None
+
+    course_json_path = get_course_json_path(course_code)
+    if not course_json_path.exists():
+        return None
+
+    try:
+        with open(course_json_path, "r", encoding="utf-8") as f:
+            course_data = json.load(f)
+    except Exception:
+        return None
+
+    chapters = course_data.get("chapters", [])
+    target_order = _normalize_order(chapter_order)
+    for chapter in chapters:
+        order_value = _normalize_order(chapter.get("sort_order", chapter.get("order")))
+        if order_value == target_order:
+            return chapter.get("file")
+
+    if target_order is not None:
+        index = target_order - 1
+        if 0 <= index < len(chapters):
+            return chapters[index].get("file")
+
+    return None
+
+
+def _normalize_order(value: Optional[int]) -> Optional[int]:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None

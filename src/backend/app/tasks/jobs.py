@@ -20,6 +20,7 @@ from app.rag.service import RAGService
 from app.core.database import SessionLocal
 from app.models import ChapterKBConfig
 from app.tasks.queue import acquire_course_lock, release_course_lock
+from app.core.paths import get_course_json_path, get_chapter_path
 
 logger = logging.getLogger(__name__)
 
@@ -355,8 +356,8 @@ def index_chapter(
         
         # 尝试从 course.json 读取 kb_version（如果未指定）
         if not config.get("kb_version"):
-            courses_dir = Path(__file__).parent.parent.parent / "courses"
-            course_json_path = courses_dir / code / "course.json"
+            
+            course_json_path = get_course_json_path(code)
             if course_json_path.exists():
                 with open(course_json_path, "r", encoding="utf-8") as f:
                     course_data = json.load(f)
@@ -364,9 +365,9 @@ def index_chapter(
         
         rag_service = RAGService.get_instance()
         
-        # 读取章节文件
-        courses_dir = Path(__file__).parent.parent.parent / "courses"
-        chapter_path = courses_dir / code / source_file
+        
+        
+        chapter_path = get_chapter_path(code, source_file)
         
         if not chapter_path.exists():
             raise ValueError(f"章节文件不存在: {chapter_path}")

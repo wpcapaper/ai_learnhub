@@ -2,17 +2,28 @@
 Redis Queue (RQ) 队列管理
 
 提供任务队列的初始化、任务入队和 Worker 管理。
+支持 Redis 不可用时的同步执行模式。
 """
 
 import os
+import uuid
 import logging
 from typing import Optional, Callable, Any, Dict
+from datetime import datetime
 from functools import wraps
 
 logger = logging.getLogger(__name__)
 
 # 全局队列实例
 _queue = None
+
+# 同步任务 ID 前缀（Redis 不可用时使用）
+SYNC_TASK_PREFIX = "sync-"
+
+
+# 同步执行任务的结果缓存（Redis 不可用时使用）
+# key: task_id, value: {status, result, error, created_at, ended_at}
+_sync_task_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def get_redis_url() -> str:
@@ -102,10 +113,29 @@ def enqueue_task(
     
     if queue is None:
         logger.warning(f"队列 {queue_name} 不可用，同步执行任务")
+        # 生成虚拟 task_id，将结果存入缓存
+        sync_task_id = f"{SYNC_TASK_PREFIX}{uuid.uuid4()}"
+        created_at = datetime.utcnow()
+        _sync_task_cache[sync_task_id] = {
+            "status": "started",
+            "result": None,
+            "error": None,
+            "created_at": created_at.isoformat(),
+            "started_at": created_at.isoformat(),
+            "ended_at": None,
+        }
         try:
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            _sync_task_cache[sync_task_id]["status"] = "finished"
+            _sync_task_cache[sync_task_id]["result"] = result
+            _sync_task_cache[sync_task_id]["ended_at"] = datetime.utcnow().isoformat()
+            logger.info(f"同步任务执行完成: {sync_task_id}")
+            return sync_task_id
         except Exception as e:
             logger.error(f"任务执行失败: {e}")
+            _sync_task_cache[sync_task_id]["status"] = "failed"
+            _sync_task_cache[sync_task_id]["error"] = str(e)
+            _sync_task_cache[sync_task_id]["ended_at"] = datetime.utcnow().isoformat()
             raise
     
     try:
@@ -134,6 +164,18 @@ def get_job_status(job_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         任务状态字典，包含 status, result, error 等字段
     """
+    if job_id and job_id.startswith(SYNC_TASK_PREFIX):
+        cached = _sync_task_cache.get(job_id)
+        if cached:
+            return {
+                "id": job_id,
+                **cached
+            }
+        else:
+            logger.warning(f"同步任务 {job_id} 不在缓存中")
+            return None
+    
+    # 尝试从 RQ 获取任务状态
     try:
         from rq.job import Job
         from redis import Redis
@@ -166,6 +208,15 @@ def cancel_job(job_id: str) -> bool:
     Returns:
         是否取消成功
     """
+    if job_id and job_id.startswith(SYNC_TASK_PREFIX):
+        if job_id in _sync_task_cache:
+            status = _sync_task_cache[job_id].get("status")
+            if status == "started":
+                return False  # 同步任务已经在执行中，无法取消
+            del _sync_task_cache[job_id]
+            return True
+        return False
+    
     try:
         from rq.job import Job
         from redis import Redis
@@ -197,7 +248,7 @@ def cleanup_stale_jobs(queue_name: str = "indexing", max_age_seconds: int = 3600
         from rq import Queue, Worker
         from rq.job import Job
         from redis import Redis
-        from datetime import datetime, timedelta
+        from datetime import timedelta
         
         redis_conn = Redis.from_url(get_redis_url())
         queue = Queue(queue_name, connection=redis_conn)

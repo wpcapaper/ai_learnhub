@@ -197,3 +197,6 @@ src/backend/data/chroma/
 
 # 质量报告（运行时生成，可选提交）
 # **/quality_report.json
+
+# Backup files
+*.bak*

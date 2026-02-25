@@ -9,7 +9,9 @@
 
 ## 📖 项目简介
 
-AILearn Hub 是一个现代化的智能学习平台，通过科学的学习算法帮助用户高效掌握知识。系统集成了刷题、考试、复习等多种学习模式，特别适合认证考试备考、技能提升等场景。
+AILearn Hub 是一套基于艾宾浩斯遗忘曲线的 AI 智能学习系统，融合 **RAG（检索增强生成）** 与 **Agent 框架**，实现从课程内容导入、知识库构建到学习/复习闭环的全流程能力。
+
+系统采用 **FastAPI + Next.js** 的前后端分离架构，支持流式交互、异步任务与可观测性监控，面向真实学习场景提供可扩展的工程化落地方案。
 
 ### ✨ 核心特性
 
@@ -24,11 +26,12 @@ AILearn Hub 是一个现代化的智能学习平台，通过科学的学习算�
   - **复习模式**：智能推荐待复习题目，针对性巩固薄弱环节
   - **错题本**：自动记录错题，支持一键重练
 
-- **📊 全面的学习统计** *[WIP]*
-  - 答题准确率、学习时长、掌握程度等多维度数据
-  - 课程进度追踪，可视化展示学习成果
-  - 错题统计分析，发现知识盲区
-  > ⚠️ 注意：学习统计模块正在开发中，部分功能可能不完善
+- **📊 RAG 检索增强生成**
+  - 基于 ChromaDB 的向量检索体系
+  - 语义切分、多 Embedding 模型适配（OpenAI/BGE/E5）
+  - Rerank 重排序与混合检索（向量+关键词）
+  - 知识库版本化 Collection 管理，支持无缝更新与回滚
+  - 稳定 Chunk ID 机制，保障幂等索引与数据一致性
 
 - **🎯 多课程多题集支持**
   - 灵活的课程管理体系
@@ -46,6 +49,15 @@ AILearn Hub 是一个现代化的智能学习平台，通过科学的学习算�
   - 完整的 RESTful API 文档
   - Docker 一键部署
   - 前后端分离架构
+- **🤖 Agent 框架**
+  - 基于 Skills 装饰器的 Agent 注册机制
+  - SSE 流式输出，增强交互体验
+  - RAG Optimizer Agent 课程质量评估
+
+- **📈 可观测性**
+  - Langfuse LLM 调用监控与链路追踪
+  - Redis Queue 异步任务处理
+  - Admin API IP 白名单保护
 
 ## 🏗️ 技术架构
 
@@ -57,6 +69,7 @@ AILearn Hub 是一个现代化的智能学习平台，通过科学的学习算�
   - 异步支持
 - **SQLAlchemy**: Python ORM
 - **数据库**: SQLite（开发环境）/ PostgreSQL（生产环境）
+- **Redis Queue**: 异步任务队列
 - **Python**: 3.11+
 
 ### 前端技术栈
@@ -67,16 +80,30 @@ AILearn Hub 是一个现代化的智能学习平台，通过科学的学习算�
   - 文件系统路由
 - **React 19**: UI 库
 - **TypeScript**: 类型安全
-- **Tailwind CSS 4**: 快速 UI 开发
+- **Tailwind CSS 4**: 原子化 CSS
+- **Magic UI**: 现代组件库
 - **KaTeX**: 数学公式渲染
 
-### 数据导入工具
+### RAG / AI 技术栈
 
-- **Python**: 脚本开发语言
-- **uv**: 快速的 Python 包管理工具
-- **python-docx**: Word 文档解析
-- **Markdown**: 标准文本格式支持
+- **ChromaDB**: 向量数据库
+- **Embedding**: OpenAI / BGE / E5 多模型支持
+- **Semantic Chunking**: 语义切分策略
+- **Rerank**: 重排序优化
+- **Hybrid Retrieval**: 混合检索（向量+关键词）
 
+### Agent / 交互
+
+- **Skills-based Agent**: 装饰器注册机制
+- **SSE**: 流式输出
+
+### 可观测性
+
+- **Langfuse**: LLM 调用监控与链路追踪
+
+### 部署
+
+- **Docker Compose**: 6 服务一键部署（backend, worker, frontend, admin-frontend, redis, langfuse）
 ## 📁 项目结构
 
 ```
@@ -86,36 +113,53 @@ aie55_llm5_learnhub/
 │   │   ├── main.py             # 应用入口
 │   │   ├── app/
 │   │   │   ├── core/           # 核心模块（数据库、艾宾浩斯算法）
-│   │   │   ├── models/         # 数据模型
-│   │   │   ├── services/       # 业务逻辑
-│   │   │   └── api/            # API 路由
+│   │   │   ├── models/         # 数据模型（14+ SQLAlchemy 模型）
+│   │   │   ├── services/       # 业务逻辑（9+ Service 层）
+│   │   │   ├── api/            # API 路由（16+ 端点）
+│   │   │   ├── rag/            # RAG 系统（6 子模块）
+│   │   │   │   ├── chunking/   # 语义切分
+│   │   │   │   ├── embedding/  # Embedding 模型
+│   │   │   │   ├── vector_store/ # ChromaDB 向量存储
+│   │   │   │   ├── retrieval/  # 检索器、Rerank
+│   │   │   │   ├── evaluation/ # 召回测试
+│   │   │   │   └── multilingual/ # 多语言支持
+│   │   │   ├── agent/          # Agent 框架
+│   │   │   ├── llm/            # LLM 封装层
+│   │   │   └── tasks/          # 异步任务
 │   │   ├── data/               # 数据库文件
 │   │   └── Dockerfile
 │   │
-│   └── frontend/               # 前端应用（Next.js）
-│       ├── app/                # 页面目录
-│       │   ├── page.tsx        # 首页
-│       │   ├── quiz/           # 刷题页面
-│       │   ├── exam/           # 考试页面
-│       │   ├── mistakes/       # 错题本页面
-│       │   ├── stats/          # 统计页面
-│       │   └── courses/        # 课程页面
-│       ├── components/         # 可复用组件
-│       ├── lib/                # 工具库（API Client）
-│       └── Dockerfile
+│   ├── frontend/               # 前端应用（Next.js）
+│   │   ├── app/                # 页面目录（7+ 页面）
+│   │   │   ├── page.tsx        # 首页
+│   │   │   ├── quiz/           # 刷题页面
+│   │   │   ├── exam/           # 考试页面
+│   │   │   ├── mistakes/       # 错题本页面
+│   │   │   ├── learning/       # 学习页面（Markdown 阅读器）
+│   │   │   └── courses/        # 课程页面
+│   │   ├── components/         # 可复用组件（10+）
+│   │   ├── lib/                # 工具库（API Client）
+│   │   └── Dockerfile
+│   │
+│   └── admin-frontend/         # 管理端应用（Next.js）
+│       ├── app/
+│       │   ├── page.tsx        # 管理首页
+│       │   ├── knowledge-base/ # 知识库管理
+│       │   ├── optimization/   # 课程优化
+│       │   └── rag-expert/     # RAG 专家
+│       └── components/
 │
 ├── scripts/                    # 数据导入脚本
 │   ├── init_db.py             # 初始化数据库
 │   ├── init_course_data.py    # 初始化课程数据
 │   ├── import_questions.py    # 导入题目
-│   ├── convert_md_to_json.py  # Markdown 转 JSON
-│   ├── convert_docx_to_json.py # Word 转 JSON
-│   └── data/
-│       ├── input/              # 输入数据源
-│       └── output/             # 转换后的 JSON
+│   └── course_pipeline/       # 课程转换管道
 │
+├── markdown_courses/          # Markdown 课程内容
 ├── schema.sql                  # 数据库结构定义
-├── docker-compose.yml          # Docker Compose 配置
+├── docker-compose.yml          # Docker Compose 配置（6 服务）
+├── RAG_ARCHITECTURE.md        # RAG 架构设计文档
+├── PROJECT_HIGHLIGHTS.md      # 项目亮点（简历专用）
 ├── SCRIPT_MANUAL.md           # 脚本使用手册
 └── README.md                  # 项目说明（本文件）
 ```
@@ -348,6 +392,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 - [后端开发文档](src/backend/README.md) - 后端架构、API 设计、开发指南
 - [前端开发文档](src/frontend/README.md) - 前端架构、组件设计、样式指南
 - [脚本使用手册](SCRIPT_MANUAL.md) - 数据导入、格式转换、初始化流程
+- [RAG 架构设计](RAG_ARCHITECTURE.md) - 向量检索、知识库管理、版本控制
+- [项目亮点](PROJECT_HIGHLIGHTS.md) - 面向求职简历的项目亮点总结
 
 ## 🤝 贡献指南
 
@@ -365,9 +411,17 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 
 > **注意**：AGPL 许可证要求如果您在网络上运行此软件的修改版本，必须向用户提供源代码。
 
-## 🙏 致谢
+## 📊 系统规模
 
-感谢所有为本项目做出贡献的开发者！
+| 模块 | 数量 |
+|------|------|
+| 后端 API 路由 | 16+ |
+| Service 层 | 9+ |
+| 数据模型 (SQLAlchemy) | 14+ |
+| 前端页面 | 7+ |
+| 前端组件 | 10+ |
+| RAG 子模块 | 6 |
+| Docker 服务 | 6 |
 
 ---
 
