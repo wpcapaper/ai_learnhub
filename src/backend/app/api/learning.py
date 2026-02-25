@@ -358,14 +358,15 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         
         full_response_content = ""
         error_occurred = None
+        collector: Optional[StreamUsageCollector] = None
         
         try:
-            stream = await llm.chat_stream(
+            stream = cast(AsyncGenerator[Any, None], llm.chat_stream(
                 messages_payload,
                 temperature=0.7,
                 max_tokens=2000
-            )
-            collector = StreamUsageCollector(cast(AsyncGenerator[Any, None], stream))
+            ))
+            collector = StreamUsageCollector(stream)
             async for chunk in collector.iter():
                 if chunk.content:
                     full_response_content += chunk.content
@@ -400,7 +401,7 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                     input=input_data,
                     output=output_data,
                     model=llm.default_model,
-                    usage=collector.usage,
+                    usage=collector.usage if collector else None,
                     start_time=start_time,
                     end_time=end_time,
                     metadata={

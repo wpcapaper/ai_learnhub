@@ -435,8 +435,8 @@ const MarkdownReader = forwardRef<MarkdownReaderRef, MarkdownReaderProps>(
       >
         {content}
       </ReactMarkdown>
-      {/* 底部占位，确保最后章节也能滚动到顶部 */}
-      <div style={{ height: '60vh' }} />
+      {/* 底部占位，确保最后章节也能滚动到顶部 - 仅在文档模式下添加 */}
+      {variant === 'document' && <div style={{ height: '60vh' }} />}
     </div>
   );
 });
