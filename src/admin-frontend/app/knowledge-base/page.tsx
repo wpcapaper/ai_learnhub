@@ -1102,10 +1102,20 @@ function TestTab({
     setLoading(false);
   };
 
+  // 规范化路径：统一分隔符、去除前缀等
+  const normalizeSource = (source: string) => {
+    return source
+      .trim()
+      .replace(/\\/g, '/')   // Windows路径分隔符统一为 /
+      .replace(/\/+/g, '/')  // 合并重复斜杠
+      .replace(/^\.\//, '')  // 去除 ./ 前缀
+      .split('#')[0]          // 去除锚点
+      .split('?')[0];         // 去除查询参数
+  };
+
   // 判断召回结果是否来自其他章节
   const isFromOtherChapter = (source: string) => {
-    const sourceFile = source.split('/').pop() || source;
-    return sourceFile !== currentChapterFile;
+    return normalizeSource(source) !== normalizeSource(currentChapterFile);
   };
 
   if (!courseCode || !sourceFile) return null;
