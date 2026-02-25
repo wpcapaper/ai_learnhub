@@ -43,6 +43,11 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - TEST-ARCH-001: 对齐索引任务单元测试与当前任务函数签名
 - TEST-ARCH-001: 添加后端单元测试运行与覆盖链路文档
+
+## [AI-CHAT-001] - 2026-02-25
+
+### Changed
+- AI-CHAT-001: ai_chat 使用章节优先召回提示词并保留旧版
 - 清理无用的 .bak 备份文件
 
 ## [KB-ADMIN-001] - 2026-02-24

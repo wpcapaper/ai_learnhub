@@ -4,16 +4,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from typing import Optional
+from datetime import datetime
+from collections.abc import AsyncGenerator
+from typing import Optional, cast, Any
 from pydantic import BaseModel
 
 from app.core.database import get_db, SessionLocal
-from app.models import Chapter
+from app.models import Chapter, Course
+from app.rag import retrieve_chapter_chunks, retrieve_course_chunks, build_rag_context
 from app.services import LearningService
 from prompts import prompt_loader
 
 # LLM 客户端（使用新的封装层）
 from app.llm import get_llm_client
+from app.llm.streaming import StreamUsageCollector
 
 
 router = APIRouter(prefix="/learning", tags=["学习课程"])
@@ -32,6 +36,8 @@ class ChatRequest(BaseModel):
     message: str  # 用户消息
     user_id: Optional[str] = None  # 用户 ID（可选）
     conversation_id: Optional[str] = None  # 会话 ID（可选，用于延续对话）
+
+
 
 
 @router.get("/{course_id}/chapters")
@@ -128,6 +134,8 @@ def update_progress(
             progress.position,
             progress.percentage
         )
+        last_read_at_value = cast(Optional[datetime], getattr(updated_progress, "last_read_at", None))
+        last_read_at_iso = last_read_at_value.isoformat() if isinstance(last_read_at_value, datetime) else None
         return {
             "id": updated_progress.id,
             "user_id": updated_progress.user_id,
@@ -135,7 +143,7 @@ def update_progress(
             "last_position": updated_progress.last_position,
             "last_percentage": updated_progress.last_percentage,
             "is_completed": updated_progress.is_completed,
-            "last_read_at": updated_progress.last_read_at.isoformat() if updated_progress.last_read_at else None,
+            "last_read_at": last_read_at_iso,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -166,12 +174,14 @@ def mark_chapter_completed(
 
     try:
         updated_progress = LearningService.mark_chapter_completed(db, user_id, chapter_id)
+        last_read_at_value = cast(Optional[datetime], getattr(updated_progress, "last_read_at", None))
+        last_read_at_iso = last_read_at_value.isoformat() if isinstance(last_read_at_value, datetime) else None
         return {
             "id": updated_progress.id,
             "user_id": updated_progress.user_id,
             "chapter_id": updated_progress.chapter_id,
             "is_completed": updated_progress.is_completed,
-            "last_read_at": updated_progress.last_read_at.isoformat() if updated_progress.last_read_at else None,
+            "last_read_at": last_read_at_iso,
         }
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -227,17 +237,23 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
     if not chapter:
         raise HTTPException(status_code=404, detail=f"章节 {request.chapter_id} 不存在")
 
-    markdown_content = chapter.content_markdown or ""
+    course = db.query(Course).filter(
+        Course.id == chapter.course_id,
+        Course.is_deleted.is_(False)
+    ).first()
+    if not course:
+        raise HTTPException(status_code=404, detail=f"课程 {chapter.course_id} 不存在")
 
     conversation_id = request.conversation_id
     if not conversation_id:
         conversation = LearningService.create_conversation(db, request.user_id, request.chapter_id)
         conversation_id = conversation.id
+    conversation_id_value: str = str(conversation_id)
     
-    LearningService.save_message(db, conversation_id, "user", request.message)
+    LearningService.save_message(db, conversation_id_value, "user", request.message)
 
-    max_history = prompt_loader.get_config("ai_assistant", "variables", {}).get("max_history", 10)
-    history_messages = LearningService.get_conversation_history(db, conversation_id, limit=max_history)
+    max_history = prompt_loader.get_config("ai_assistant_rag", "variables", {}).get("max_history", 10)
+    history_messages = LearningService.get_conversation_history(db, conversation_id_value, limit=max_history)
     
     # 获取 LLM 客户端
     try:
@@ -266,16 +282,42 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
         # 获取用户昵称用于 Langfuse 追踪
         # 注意：当前开发阶段使用 nickname 便于在 Langfuse 中直观识别用户
         # 后续生产化应改为使用 user_id，因为 nickname 可能重复或变更
-        user_nickname = None
+        user_nickname: Optional[str] = None
         if request.user_id:
             user = db_stream.query(User).filter(User.id == request.user_id).first()
             if user:
-                user_nickname = user.nickname
+                user_nickname = str(user.nickname) if user.nickname is not None else None
+        trace_user_id: Optional[str] = user_nickname
+        if trace_user_id is None and request.user_id is not None:
+            trace_user_id = str(request.user_id)
         
+        course_code_value = str(course.code)
+        sort_order_value = cast(Optional[int], chapter.sort_order)
+        chapter_order = sort_order_value if sort_order_value is not None and sort_order_value > 0 else None
+        chapter_chunks = await retrieve_chapter_chunks(
+            query=request.message,
+            course_code=course_code_value,
+            top_k=5,
+            score_threshold=0.0,
+            chapter_order=chapter_order
+        )
+        course_chunks = await retrieve_course_chunks(
+            query=request.message,
+            course_code=course_code_value,
+            top_k=5,
+            score_threshold=0.0
+        )
+        chapter_context = build_rag_context(chapter_chunks, max_context_chars=2000)
+        course_context = build_rag_context(course_chunks, max_context_chars=2000)
+
+        chapter_block = "【当前章节召回】\n" + (chapter_context or "未检索到相关内容。")
+        course_block = "【课程维度召回】\n" + (course_context or "未检索到相关内容。")
+        course_content = f"{chapter_block}\n\n{course_block}"
+
         messages_payload = prompt_loader.get_messages(
-            "ai_assistant",
+            "ai_assistant_rag",
             include_templates=["course_context"],
-            course_content=markdown_content
+            course_content=course_content
         )
 
         for msg in history_messages:
@@ -310,30 +352,27 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
             trace = langfuse_client.trace(
                 name="ai_chat",
                 input=input_data,
-                user_id=user_nickname or request.user_id,  # 优先使用 nickname 便于识别
+                user_id=trace_user_id,
                 tags=["assistant", "course"],
             )
         
         full_response_content = ""
-        usage_info = None  # 收集 token 使用信息
         error_occurred = None
         
         try:
-            # 流式调用 LLM
-            async for chunk in llm.chat_stream(
+            stream = await llm.chat_stream(
                 messages_payload,
                 temperature=0.7,
                 max_tokens=2000
-            ):
+            )
+            collector = StreamUsageCollector(cast(AsyncGenerator[Any, None], stream))
+            async for chunk in collector.iter():
                 if chunk.content:
                     full_response_content += chunk.content
                     yield chunk.content
-                elif chunk.usage:
-                    # 收集 usage 信息（最后一个块）
-                    usage_info = chunk.usage
             
             # 保存助手回复到数据库
-            LearningService.save_message(db_stream, conversation_id, "assistant", full_response_content)
+            LearningService.save_message(db_stream, conversation_id_value, "assistant", full_response_content)
             db_stream.commit()
 
         except Exception as e:
@@ -361,11 +400,7 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                     input=input_data,
                     output=output_data,
                     model=llm.default_model,
-                    usage={
-                        "input": usage_info.get("prompt_tokens") if usage_info else None,
-                        "output": usage_info.get("completion_tokens") if usage_info else None,
-                        "total": usage_info.get("total_tokens") if usage_info else None,
-                    } if usage_info else None,
+                    usage=collector.usage,
                     start_time=start_time,
                     end_time=end_time,
                     metadata={
@@ -381,5 +416,5 @@ async def ai_chat(request: ChatRequest, db: Session = Depends(get_db)):
                 langfuse_client.flush()
     
     response = StreamingResponse(generate_stream(), media_type="text/plain")
-    response.headers["X-Conversation-Id"] = conversation_id
+    response.headers["X-Conversation-Id"] = conversation_id_value
     return response
