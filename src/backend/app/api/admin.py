@@ -10,7 +10,7 @@
 所有课程数据存储在 markdown_courses/ 目录，不依赖 courses/ 目录
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -19,6 +19,7 @@ import json
 import uuid
 from pathlib import Path
 from datetime import datetime
+import logging
 
 # 课程转换管道
 from app.course_pipeline import (
@@ -43,6 +44,8 @@ from app.core.admin_security import validate_course_id
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
+# 日志
+logger = logging.getLogger(__name__)
 
 # ==================== 请求/响应模型 ====================
 
@@ -987,3 +990,252 @@ async def batch_generate_wordclouds(course_code: str):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"批量生成失败: {str(e)}")
+
+
+# ==================== 题目生成 API ====================
+
+from app.services.question_generation_service import (
+    QuestionGenerationService,
+    GenerationResult,
+    generate_quiz_for_course,
+)
+
+
+class QuizGenerateRequest(BaseModel):
+    """题目生成请求"""
+    quiz_generate_request: str = "quiz_generate_request"
+    course_code: Optional[str] = None  # markdown_courses 目录名 (后端使用)
+    course_id: Optional[str] = None  # 前端兼容 (与 course_code 相同)
+    export_json: bool = False  # 是否导出 JSON 文件
+    chapter_files: Optional[List[str]] = None  # 指定章节，为空时处理所有章节
+    chapter_count: Optional[int] = None  # 前端兼容 (忽略)
+    question_types: Optional[List[str]] = None  # 前端兼容 (目前只支持 single_choice)
+    difficulty: Optional[str] = None  # 前端兼容 (忽略)
+    
+    @property
+    def effective_course_code(self) -> str:
+        """获取有效的课程代码"""
+        return self.course_code or self.course_id or ""
+
+class QuizGenerateResponse(BaseModel):
+    """题目生成响应"""
+    quiz_generate_response: str = "quiz_generate_response"
+    success: bool
+    message: str
+    course_code: str
+    total_questions: int = 0
+    chapters_processed: int = 0
+    errors: List[str] = []
+
+
+class QuizGenerateJobResponse(BaseModel):
+    """题目生成任务响应（后台任务）"""
+    quiz_generate_job_response: str = "quiz_generate_job_response"
+    job_id: str
+    status: str  # pending | running | completed | failed
+    course_code: str
+    message: str
+    total_questions: int = 0
+    chapters_processed: int = 0
+    errors: List[str] = []
+
+# 存储任务状态的内存缓存（生产环境应使用 Redis）
+_quiz_generate_jobs: Dict[str, Dict[str, Any]] = {}
+
+
+@router.post("/quiz/generate", response_model=QuizGenerateResponse)
+async def generate_quiz(
+    request: QuizGenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(lambda: SessionLocal()),
+):
+    """
+    为课程生成题目
+    
+    Args:
+        course_code: 课程代码（markdown_courses 目录名）
+        export_json: 是否导出 JSON 文件到 scripts/data/output/
+        chapter_files: 指定章节文件列表，为空时处理所有章节
+    
+    Returns:
+        QuizGenerateResponse 生成结果
+    """
+    course_code = validate_course_id(request.effective_course_code)
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_code
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail=f"课程不存在: {course_code}")
+    
+    # 检查数据库中是否存在该课程
+    course = db.query(Course).filter(Course.code == course_code, Course.is_deleted == False).first()
+    if not course:
+        raise HTTPException(
+            status_code=400,
+            detail=f"课程未导入到数据库，请先导入课程: {course_code}"
+        )
+    
+    try:
+        # 同步生成（适用于小课程）
+        service = QuestionGenerationService(str(markdown_dir))
+        
+        # 获取章节列表
+        results = service.generate_for_course(
+            course_code=course_code,
+            chapter_files=request.chapter_files,
+        )
+        
+        # 统计
+        total_questions = 0
+        chapters_processed = 0
+        errors = []
+        
+        for result in results:
+            if result.success:
+                chapters_processed += 1
+                total_questions += len(result.questions)
+                
+                # 保存到数据库
+                if result.questions:
+                    service.save_to_database(
+                        db=db,
+                        course_id=course.id,
+                        questions=result.questions,
+                        source_file=result.chapter_file,
+                    )
+                
+                # 可选导出 JSON
+                if request.export_json and result.questions:
+                    from pathlib import Path
+                    output_path = Path("scripts/data/output")
+                    service.export_to_json(
+                        questions=result.questions,
+                        output_path=output_path,
+                        course_code=course_code,
+                        chapter_file=result.chapter_file or "unknown",
+                    )
+            else:
+                errors.append(f"{result.chapter_file}: {result.error}")
+        
+        return QuizGenerateResponse(
+            success=len(errors) == 0,
+            message=f"生成完成: {total_questions} 道题目" if total_questions > 0 else "生成失败",
+            course_code=course_code,
+            total_questions=total_questions,
+            chapters_processed=chapters_processed,
+            errors=errors,
+        )
+        
+    except Exception as e:
+        logger.error(f"题目生成失败: {e}")
+        raise HTTPException(status_code=500, detail=f"题目生成失败: {str(e)}")
+    finally:
+        db.close()
+
+
+@router.post("/quiz/generate/async", response_model=QuizGenerateJobResponse)
+async def generate_quiz_async(
+    request: QuizGenerateRequest,
+    background_tasks: BackgroundTasks,
+):
+    """
+    异步生成题目（后台任务）
+    
+    适用于大型课程，立即返回任务 ID，通过轮询查询进度。
+    """
+    import uuid as uuid_module
+    
+    course_code = validate_course_id(request.effective_course_code)
+    markdown_dir = get_markdown_courses_dir()
+    course_dir = markdown_dir / course_code
+    
+    if not course_dir.exists():
+        raise HTTPException(status_code=404, detail=f"课程不存在: {course_code}")
+    # 创建任务 ID
+    job_id = str(uuid_module.uuid4())[:8]
+    
+    # 初始化任务状态
+    _quiz_generate_jobs[job_id] = {
+        "status": "pending",
+        "course_code": course_code,
+        "total_questions": 0,
+        "chapters_processed": 0,
+        "errors": [],
+        "started_at": datetime.utcnow().isoformat(),
+        "completed_at": None,
+    }
+    
+    # 添加后台任务
+    background_tasks.add_task(
+        _run_quiz_generation_job,
+        job_id=job_id,
+        course_code=course_code,
+        export_json=request.export_json,
+        chapter_files=request.chapter_files,
+    )
+    
+    return QuizGenerateJobResponse(
+        job_id=job_id,
+        status="pending",
+        course_code=course_code,
+        message="任务已创建，正在后台执行"
+    )
+
+
+@router.get("/quiz/generate/{job_id}", response_model=QuizGenerateJobResponse)
+async def get_quiz_generate_job_status(job_id: str):
+    """获取题目生成任务状态"""
+    if job_id not in _quiz_generate_jobs:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    
+    job = _quiz_generate_jobs[job_id]
+    return QuizGenerateJobResponse(
+        job_id=job_id,
+        status=job["status"],
+        course_code=job["course_code"],
+        message=f"已生成 {job['total_questions']} 道题目" if job["status"] == "completed" else (job["status"] if job["status"] != "failed" else f"失败: {job['errors'][0] if job['errors'] else '未知错误'}"),
+        total_questions=job.get("total_questions", 0),
+        chapters_processed=job.get("chapters_processed", 0),
+        errors=job.get("errors", []),
+    )
+
+
+def _run_quiz_generation_job(
+    job_id: str,
+    course_code: str,
+    export_json: bool,
+    chapter_files: Optional[List[str]],
+):
+    """后台任务：执行题目生成"""
+    db = SessionLocal()
+    try:
+        # 更新状态为运行中
+        _quiz_generate_jobs[job_id]["status"] = "running"
+        
+        # 执行生成
+        result = generate_quiz_for_course(
+            course_code=course_code,
+            db=db,
+            export_json=export_json,
+            chapter_files=chapter_files,
+            markdown_courses_dir=str(get_markdown_courses_dir()),
+        )
+        
+        # 更新任务状态
+        _quiz_generate_jobs[job_id].update({
+            "status": "completed" if result["success"] else "failed",
+            "total_questions": result["total_questions"],
+            "chapters_processed": result["chapters_processed"],
+            "errors": result["errors"],
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+        
+    except Exception as e:
+        logger.error(f"后台任务失败: job_id={job_id}, error={e}")
+        _quiz_generate_jobs[job_id].update({
+            "status": "failed",
+            "errors": [str(e)],
+            "completed_at": datetime.utcnow().isoformat(),
+        })
+    finally:
+        db.close()

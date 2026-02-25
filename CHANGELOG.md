@@ -457,3 +457,16 @@ All notable changes to this project will be documented in this file.
 ### Files
 - `src/frontend/app/globals.css`
 - `src/frontend/components/MarkdownReader.tsx`
+
+## [QUIZ-GEN-001] - 2026-02-25
+
+### Changed
+- QUIZ-GEN-001: 集成题目生成脚本到管理端 API
+- 新增 QuestionGenerationService 服务层
+- 新增 POST /api/admin/quiz/generate 端点（同步生成）
+- 新增 POST /api/admin/quiz/generate/async 端点（后台任务）
+- 新增 GET /api/admin/quiz/generate/{job_id} 端点（状态查询）
+
+### Files
+- `src/backend/app/services/question_generation_service.py` (新增)
+- `src/backend/app/api/admin.py` (修改)

@@ -7,7 +7,8 @@ import {
   RawCourse, 
   DatabaseCourse,
   ImportResult,
-  QuizGenerateResult 
+  QuizGenerateResult,
+  QuizGenerateJobStatus 
 } from '@/lib/api';
 import WordcloudManager from '@/components/WordcloudManager';
 
@@ -137,13 +138,66 @@ export default function CoursesPage() {
   const handleGenerateQuiz = async (courseId: string) => {
     setActionLoading(`quiz-${courseId}`);
     setQuizResult(null);
-    const response = await adminApi.generateQuiz(courseId);
-    setActionLoading(null);
     
-    if (response.success && response.data) {
-      setQuizResult(response.data);
-    } else {
-      alert(`生成失败: ${response.error}`);
+    let pollIntervalId: NodeJS.Timeout | null = null;
+    let timeoutId: NodeJS.Timeout | null = null;
+    
+    const cleanup = () => {
+      if (pollIntervalId) clearInterval(pollIntervalId);
+      if (timeoutId) clearTimeout(timeoutId);
+      setActionLoading(null);
+    };
+    
+    try {
+      // 先尝试异步生成
+      const asyncResponse = await adminApi.generateQuizAsync(courseId);
+      
+      if (asyncResponse.success && asyncResponse.data) {
+        // 轮询任务状态
+        const jobId = asyncResponse.data.job_id;
+        
+        pollIntervalId = setInterval(async () => {
+          const statusResponse = await adminApi.getQuizGenerateJobStatus(jobId);
+          
+          if (statusResponse.success && statusResponse.data) {
+            const { status, message, total_questions, chapters_processed, errors } = statusResponse.data;
+            
+            if (status === 'completed') {
+              cleanup();
+              setQuizResult({
+                success: true,
+                message,
+                total_questions: total_questions || 0,
+                chapters_processed: chapters_processed || 0,
+              });
+              loadAllData();
+            } else if (status === 'failed') {
+              cleanup();
+              alert(`生成失败: ${errors?.[0] || message || '未知错误'}`);
+            }
+          }
+        }, 2000); // 每2秒轮询一次
+        
+        // 设置超时（5分钟）
+        timeoutId = setTimeout(() => {
+          cleanup();
+          alert('生成超时，请稍后重试');
+        }, 5 * 60 * 1000);
+      } else {
+        // 异步失败，尝试同步生成
+        const response = await adminApi.generateQuiz(courseId);
+        setActionLoading(null);
+        
+        if (response.success && response.data) {
+          setQuizResult(response.data);
+          loadAllData();
+        } else {
+          alert(`生成失败: ${response.error}`);
+        }
+      }
+    } catch (error) {
+      cleanup();
+      alert(`生成失败: ${error}`);
     }
   };
 
