@@ -287,7 +287,7 @@ def get_wrong_questions(
                 "id": q.course.id,
                 "title": q.course.title
             } if q.course else None,
-            "answer": latest_answers.get(q.id),  # 从历史记录获取最新答案
+            "user_answer": latest_answers.get(q.id),  # 从历史记录获取最新用户答案
             "last_wrong_time": wrong_times.get(q.id),
             "question_set_codes": question_set_codes.get(q.id, [])  # 返回题集来源
         }

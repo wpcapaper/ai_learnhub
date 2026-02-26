@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [MISTAKES-001] - 2026-02-26
+
+### Fixed
+- MISTAKES-001: 修复错题本用户答案显示"未作答"的问题（字段名 answer → user_answer）
+
+
+
 ## [KB-ADMIN-002] - 2026-02-24
 
 ### Changed
