@@ -1,5 +1,14 @@
 'use client';
 
+/**
+ * 刷题页面
+ * 
+ * 功能说明：
+ * - 支持单选题和多选题答题
+ * - 批次答题模式，完成后显示成绩
+ * - Phase 3 Active Intervention：连续答错3题后建议 AI 诊断
+ */
+
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { apiClient, Question, Course, User, Batch } from '@/lib/api';
@@ -7,11 +16,16 @@ import LaTeXRenderer from '@/components/LaTeXRenderer';
 import Link from 'next/link';
 import ThemeSelector from '@/components/ThemeSelector';
 
+// 连续答错阈值
+const CONSECUTIVE_WRONG_THRESHOLD = 3;
+
 function QuizPageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const courseId = searchParams.get('course_id');
+  const batchIdParam = searchParams.get('batch_id');
 
+  // 基础状态
   const [user, setUser] = useState<User | null>(null);
   const [course, setCourse] = useState<Course | null>(null);
   const [batch, setBatch] = useState<Batch | null>(null);
@@ -23,6 +37,11 @@ function QuizPageContent() {
   const [result, setResult] = useState<{ correct: number; wrong: number; total: number } | null>(null);
   const [selectedOptions, setSelectedOptions] = useState<Set<string>>(new Set());
 
+  // Phase 3 Active Intervention 状态
+  // 关键业务逻辑：连续答错3题后触发 AI 诊断建议
+  const [consecutiveWrongCount, setConsecutiveWrongCount] = useState(0);
+  const [showInterventionModal, setShowInterventionModal] = useState(false);
+
   useEffect(() => {
     const savedUserId = localStorage.getItem('userId');
     if (savedUserId) {
@@ -33,14 +52,42 @@ function QuizPageContent() {
   }, [router]);
 
   useEffect(() => {
-    if (!user || !courseId) return;
+    if (!user) return;
 
     const loadQuiz = async () => {
       try {
-        const courseData = await apiClient.getCourse(courseId!);
+        // 如果有 batch_id 参数，直接加载已有批次（用于错题重练）
+        if (batchIdParam) {
+          const batchData = await apiClient.getBatch(user.id, batchIdParam);
+          setBatch(batchData);
+          
+          const questionsData = await apiClient.getBatchQuestions(user.id, batchIdParam);
+          setQuestions(questionsData);
+          
+          if (batchData.course_id) {
+            const courseData = await apiClient.getCourse(batchData.course_id);
+            setCourse(courseData);
+          }
+          
+          setLoading(false);
+          
+          if (questionsData.length === 0) {
+            alert('暂无题目可刷');
+            router.push('/courses');
+          }
+          return;
+        }
+
+        // 否则创建新批次
+        if (!courseId) {
+          router.push('/courses');
+          return;
+        }
+
+        const courseData = await apiClient.getCourse(courseId);
         setCourse(courseData);
 
-        const batchData = await apiClient.startBatch(user.id, 'practice', 10, courseId!);
+        const batchData = await apiClient.startBatch(user.id, 'practice', 10, courseId);
         setBatch(batchData);
 
         const questionsData = await apiClient.getBatchQuestions(user.id, batchData.id);
@@ -58,7 +105,7 @@ function QuizPageContent() {
     };
 
     loadQuiz();
-  }, [user, courseId, router]);
+  }, [user, courseId, batchIdParam, router]);
 
   const currentQuestion = questions[currentIndex];
 
@@ -126,6 +173,13 @@ function QuizPageContent() {
     setSelectedOptions(new Set());
   };
 
+  /**
+   * 处理刷题完成
+   *
+   * 业务逻辑说明：
+   * - 完成批次后检查连续错误情况
+   * - 如果连续答错达到阈值，弹出 AI 诊断建议
+   */
   const finishBatch = async () => {
     if (!user || !batch) return;
 
@@ -143,6 +197,25 @@ function QuizPageContent() {
       const questionsWithAnswers = await apiClient.getBatchQuestions(user.id, batch.id);
       setQuestions(questionsWithAnswers);
       setCompleted(true);
+      
+      // Phase 3: 检测连续错误
+      // 关键业务逻辑：检查是否有连续答错达到阈值的情况
+      let maxConsecutive = 0;
+      let currentConsecutive = 0;
+      for (const q of questionsWithAnswers) {
+        if (!q.is_correct) {
+          currentConsecutive++;
+          maxConsecutive = Math.max(maxConsecutive, currentConsecutive);
+        } else {
+          currentConsecutive = 0;
+        }
+      }
+      setConsecutiveWrongCount(maxConsecutive);
+      
+      // 如果连续答错达到阈值，显示干预弹窗
+      if (maxConsecutive >= CONSECUTIVE_WRONG_THRESHOLD) {
+        setShowInterventionModal(true);
+      }
     } catch (error) {
       console.error('Failed to finish batch:', error);
       alert('提交失败');
@@ -190,6 +263,7 @@ function QuizPageContent() {
 
   return (
     <div className="min-h-screen" style={{ background: 'var(--background)' }}>
+      {/* 导航栏 */}
       <nav className="sticky top-0 z-50 border-b" style={{ background: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
@@ -219,6 +293,7 @@ function QuizPageContent() {
       </nav>
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* 完成状态 */}
         {completed && result ? (
           <div className="p-6" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
             <h2 className="text-2xl font-bold text-center mb-6" style={{ color: 'var(--foreground-title)' }}>刷题完成</h2>
@@ -240,6 +315,7 @@ function QuizPageContent() {
               <p className="text-lg" style={{ color: 'var(--foreground-title)' }}>正确率: <strong style={{ color: 'var(--primary)' }}>{Math.round((result.correct / result.total) * 100)}%</strong></p>
             </div>
 
+            {/* 题目列表 */}
             <div className="space-y-4 mb-6">
               {questions.map((q, index) => (
                 <div
@@ -255,7 +331,7 @@ function QuizPageContent() {
                     <span className="px-2 py-1 text-xs" style={{ background: q.question_type === 'single_choice' ? 'var(--info-light)' : q.question_type === 'multiple_choice' ? 'var(--warning)' : 'var(--success-light)', color: q.question_type === 'single_choice' ? 'var(--info-dark)' : q.question_type === 'multiple_choice' ? '#fff' : 'var(--success-dark)', borderRadius: 'var(--radius-sm)' }}>
                       {q.question_type === 'single_choice' ? '单选题' : q.question_type === 'multiple_choice' ? '多选题' : '判断题'}
                     </span>
-                    <span className={`text-sm font-medium ${q.is_correct ? 'text-green-600' : 'text-red-600'}`}>
+                    <span className="text-sm font-medium" style={{ color: q.is_correct ? 'var(--success)' : 'var(--error)' }}>
                       {q.is_correct ? '✓ 正确' : '✗ 错误'}
                     </span>
                   </div>
@@ -281,11 +357,21 @@ function QuizPageContent() {
               ))}
             </div>
 
-            <div className="text-center">
+            <div className="text-center flex gap-4 justify-center">
               <button onClick={() => router.push('/courses')} className="px-6 py-2 text-white" style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-md)' }}>返回课程</button>
+              {result.wrong > 0 && courseId && (
+                <button 
+                  onClick={() => router.push(`/mistakes?course_id=${courseId}`)} 
+                  className="px-6 py-2" 
+                  style={{ background: 'var(--error)', color: 'white', borderRadius: 'var(--radius-md)' }}
+                >
+                  去错题本
+                </button>
+              )}
             </div>
           </div>
         ) : currentQuestion ? (
+          /* 答题中状态 */
           <div className="p-6" style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 'var(--radius-lg)' }}>
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -392,6 +478,48 @@ function QuizPageContent() {
             </div>
           </div>
         ) : null}
+
+        {/* Phase 3 Active Intervention Modal */}
+        {/* 关键业务逻辑：连续答错3题后弹出建议 AI 诊断的模态框 */}
+        {showInterventionModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+            <div className="max-w-md w-full mx-4 p-6" style={{ background: 'var(--card-bg)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--card-border)' }}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-12 h-12 flex items-center justify-center" style={{ background: 'var(--warning)', borderRadius: 'var(--radius-full)' }}>
+                  <span className="text-2xl">🤖</span>
+                </div>
+                <div>
+                  <h3 className="font-bold" style={{ color: 'var(--foreground-title)' }}>需要一些帮助吗？</h3>
+                  <p className="text-sm" style={{ color: 'var(--foreground-secondary)' }}>检测到您连续答错了 {consecutiveWrongCount} 道题</p>
+                </div>
+              </div>
+              
+              <p className="mb-4" style={{ color: 'var(--foreground)' }}>
+                AI 可以帮您分析这些错题，找出知识盲区并提供针对性的学习建议。是否现在就去错题本进行 AI 会诊？
+              </p>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowInterventionModal(false)}
+                  className="flex-1 py-2 font-medium"
+                  style={{ background: 'var(--background-secondary)', color: 'var(--foreground)', borderRadius: 'var(--radius-md)' }}
+                >
+                  稍后再说
+                </button>
+                <button
+                  onClick={() => {
+                    setShowInterventionModal(false);
+                    router.push(`/mistakes?course_id=${courseId}`);
+                  }}
+                  className="flex-1 py-2 font-medium text-white"
+                  style={{ background: 'linear-gradient(135deg, var(--primary), var(--primary-light))', borderRadius: 'var(--radius-md)' }}
+                >
+                  前往错题本
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

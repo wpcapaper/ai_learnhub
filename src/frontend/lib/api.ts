@@ -466,6 +466,45 @@ class ApiClient {
       body: JSON.stringify(body),
     });
   }
+
+  /**
+   * AI 错题诊断分析（流式响应）
+   * 
+   * 功能说明：
+   * - 调用后端 /api/mistakes/analyze 端点
+   * - 支持三种分析模式：diagnostic（深度诊断）、variation（举一反三）、planning（复习规划）
+   * - 返回 ReadableStream，需要手动处理流式读取
+   * 
+   * @param userId 用户ID
+   * @param courseId 课程ID（可选）
+   * @param analysisType 分析类型：diagnostic | variation | planning
+   * @returns ReadableStream<Uint8Array> 流式响应
+   */
+  async analyzeMistakesStream(
+    userId: string, 
+    courseId?: string, 
+    analysisType: string = 'diagnostic'
+  ): Promise<ReadableStream<Uint8Array>> {
+    const body: any = { 
+      user_id: userId, 
+      analysis_type: analysisType 
+    };
+    if (courseId) body.course_id = courseId;
+
+    const response = await fetch(`${this.baseUrl}/api/mistakes/analyze`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI 分析错误: ${response.status} ${response.statusText}`);
+    }
+
+    return response.body as ReadableStream<Uint8Array>;
+  }
 }
 
 export const apiClient = new ApiClient();
