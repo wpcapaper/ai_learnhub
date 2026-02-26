@@ -160,9 +160,9 @@ scripts/data/output/*
 !scripts/data/input/sample_quiz.md
 !scripts/data/input/sample_docx.docx
  
-# courses（正式课程，已入库）
+# courses（正式课程，已入库） DEPRECATED
 # 默认忽略所有内容，只保留 .gitkeep
-/courses/*
+/courses
 !/courses/.gitkeep
 
 # markdown_courses（预导入课程，转换后待优化）
@@ -200,3 +200,5 @@ src/backend/data/chroma/
 
 # Backup files
 *.bak*
+
+WORKTREE_DEV.md

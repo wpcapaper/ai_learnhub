@@ -113,6 +113,34 @@ class WordcloudService:
         for word in self.STOPWORDS:
             jieba.add_word(word, freq=0, tag='stopword')
     
+    def _find_course_root(self, chapter_path: Path) -> Path:
+        """
+        从章节文件路径向上查找课程根目录
+        
+        课程根目录定义为包含 course.json 文件的目录
+        
+        Args:
+            chapter_path: 章节 markdown 文件路径
+            
+        Returns:
+            课程根目录路径
+            
+        Raises:
+            ValueError: 无法找到课程根目录
+        """
+        current = chapter_path.resolve()
+        
+        # 如果是文件，从其父目录开始
+        if current.is_file():
+            current = current.parent
+        
+        # 向上遍历父目录
+        while current.parent != current:  # 未到达文件系统根目录
+            if (current / "course.json").exists():
+                return current
+            current = current.parent
+        
+        raise ValueError(f"无法找到课程根目录 (包含 course.json 的目录): {chapter_path}")
     def _clean_text(self, text: str) -> str:
         """
         清理文本内容
@@ -297,7 +325,8 @@ class WordcloudService:
     def generate_chapter_wordcloud(
         self,
         chapter_path: Path,
-        top_k: int = None
+        top_k: int = None,
+        course_path: Path = None
     ) -> Dict:
         """
         生成章节级词云
@@ -305,6 +334,7 @@ class WordcloudService:
         Args:
             chapter_path: 章节 markdown 文件路径
             top_k: 提取的关键词数量
+            course_path: 课程根目录路径（可选，不提供则自动查找）
             
         Returns:
             词云数据字典
@@ -335,10 +365,15 @@ class WordcloudService:
             source_stats=source_stats
         )
         
-        # 保存到章节目录
-        # 存储路径: {课程目录}/chapters/{章节名}/wordcloud.json
-        chapter_name = chapter_path.stem  # 获取文件名（不含扩展名）
-        output_dir = chapter_path.parent / "chapters" / chapter_name
+        # 确定课程根目录
+        if course_path:
+            root_path = course_path
+        else:
+            root_path = self._find_course_root(chapter_path)
+        
+        # 保存到规范路径: {课程目录}/chapters/{章节名}/wordcloud.json
+        chapter_name = chapter_path.stem
+        output_dir = root_path / "chapters" / chapter_name
         output_dir.mkdir(parents=True, exist_ok=True)
         
         output_path = output_dir / "wordcloud.json"
@@ -346,6 +381,8 @@ class WordcloudService:
             json.dumps(wordcloud_data.to_dict(), ensure_ascii=False, indent=2),
             encoding='utf-8'
         )
+        
+        print(f"词云已保存: {output_path}")
         
         return wordcloud_data.to_dict()
     
@@ -503,7 +540,7 @@ class WordcloudService:
                 continue
             
             try:
-                chapter_wordcloud = self.generate_chapter_wordcloud(md_file, top_k)
+                chapter_wordcloud = self.generate_chapter_wordcloud(md_file, top_k, course_path)
                 result["chapters"].append({
                     "chapter": md_file.stem,
                     "path": str(md_file.relative_to(course_path)),
@@ -511,7 +548,6 @@ class WordcloudService:
                 })
             except Exception as e:
                 result["errors"].append(f"章节 {md_file.stem} 词云生成失败: {str(e)}")
-        
         return result
     
     def list_chapter_wordclouds(self, course_path: Path) -> List[Dict]:

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [fix-zhipu-messages] - 2026-02-26
+
+### Fixed
+- fix-zhipu-messages: 修复 AI 错题诊断接口调用智谱AI时报 1214 错误（messages 参数非法）的问题
+
+
+### Fixed
+- MISTAKES-001: 修复错题本用户答案显示"未作答"的问题（字段名 answer → user_answer）
+
+
+
 ## [KB-ADMIN-002] - 2026-02-24
 
 ### Changed
@@ -457,3 +468,16 @@ All notable changes to this project will be documented in this file.
 ### Files
 - `src/frontend/app/globals.css`
 - `src/frontend/components/MarkdownReader.tsx`
+
+## [QUIZ-GEN-001] - 2026-02-25
+
+### Changed
+- QUIZ-GEN-001: 集成题目生成脚本到管理端 API
+- 新增 QuestionGenerationService 服务层
+- 新增 POST /api/admin/quiz/generate 端点（同步生成）
+- 新增 POST /api/admin/quiz/generate/async 端点（后台任务）
+- 新增 GET /api/admin/quiz/generate/{job_id} 端点（状态查询）
+
+### Files
+- `src/backend/app/services/question_generation_service.py` (新增)
+- `src/backend/app/api/admin.py` (修改)
