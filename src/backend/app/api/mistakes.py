@@ -147,11 +147,17 @@ async def analyze_mistakes(
             
             # 4. 加载提示词模板
             try:
-                messages_payload = prompt_loader.get_messages(
+                base_messages = prompt_loader.get_messages(
                     template_name,
                     include_templates=["analysis_context"],
                     **template_vars
                 )
+                # 关键修复：确保 messages 包含至少一个 user 消息
+                # 智谱AI 等部分 LLM 不接受只有 system 消息的请求
+                messages_payload = [
+                    *base_messages,
+                    {"role": "user", "content": "请根据上述系统指令和用户答题记录进行分析。"}
+                ]
             except Exception as e:
                 # 降级处理：使用简化的 prompt
                 print(f"[API] Warning: Failed to load template '{template_name}': {e}")

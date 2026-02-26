@@ -120,6 +120,7 @@ export interface Batch {
   started_at: string;
   completed_at?: string | null;
   status: string;
+  course_id?: string | null;  // 课程ID，用于错题重练等场景
 }
 
 export interface QuizResult {
